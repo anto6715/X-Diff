@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ncCompare"
-version = "0.2.2"
+version = "0.2.4"
 description = "netCDF Comparison Tool"
 authors = ["Antonio Mariani <antonio.mariani@cmcc.it>"]
 readme = "README.md"
@@ -9,7 +9,7 @@ readme = "README.md"
 python = "^3.10"
 xarray = "^2024.6.0"
 pandas = "^2.2.2"
-netcdf4 = "^1.7.1.post1"
+netcdf4 = "^1.7.1"
 rich = "^13.7.1"
 
 

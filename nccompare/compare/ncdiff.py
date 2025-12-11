@@ -1,13 +1,13 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import List, Iterable, Any
+from typing import Any, Iterable, List
 
 import numpy as np
 import xarray as xr
 
 import nccompare.conf as settings
-from nccompare.exceptions import LastTimestepTimeCheckException, AllNaN
+from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
 from nccompare.model import CompareResult
 from nccompare.model.comparison import Comparison
 
@@ -33,7 +33,9 @@ def compare(
             for to_compare in to_compares:
                 comparison = Comparison(reference, to_compare)
                 comparison.extend(
-                    compare_files(reference, to_compare, variables, last_time_step=last_time_step)
+                    compare_files(
+                        reference, to_compare, variables, last_time_step=last_time_step
+                    )
                 )
                 yield comparison
 
@@ -172,7 +174,13 @@ def get_dataset_variables(dataset: xr.Dataset, variables: List[str]) -> List[str
         variables_to_check = variables
 
     for v in variables_to_check:
-        if v in dataset and dataset[v].dtype not in settings.DTYPE_NOT_CHECKED:
+        if v in dataset:
+            dtype_kind = dataset[v].dtype.kind
+            # Skip variables with string/unicode/byte string datatypes
+            # U: Unicode, S: byte string, O: object, a: fixed-length string
+            if dtype_kind in ("U", "S", "O", "a"):
+                logger.debug(f"Skipping variable {v} due to datatype {dtype_kind}")
+                continue
             ds_variables.append(v)
 
     return ds_variables
