@@ -2,7 +2,7 @@ from pathlib import Path
 
 from nccompare.core.service import ComparisonService
 from nccompare.matching import DefaultArtifactMatcher
-from nccompare.model import Artifact, ArtifactKind, CompareRequest
+from nccompare.model import Artifact, ArtifactKind, CompareMode, CompareRequest
 
 class StaticDiscovery:
     def __init__(self, artifacts_by_directory):
@@ -14,8 +14,9 @@ class StaticDiscovery:
 
 def make_request():
     return CompareRequest(
-        reference_root=Path("ref"),
-        comparison_root=Path("cmp"),
+        input_mode=CompareMode.DIRECTORIES,
+        reference_path=Path("ref"),
+        comparison_path=Path("cmp"),
         filter_name="*",
         common_pattern=None,
         variables=None,
@@ -95,3 +96,35 @@ def test_comparison_service_reports_unregistered_artifact_types():
 
     assert len(report) == 1
     assert type(report.comparisons[0].exception).__name__ == "UnsupportedArtifactTypeError"
+
+
+def test_comparison_service_bypasses_matching_for_explicit_file_mode():
+    request = CompareRequest(
+        input_mode=CompareMode.FILES,
+        reference_path=Path("reference.nc"),
+        comparison_path=Path("different-name.nc"),
+        filter_name="*.nc",
+        common_pattern=None,
+        variables=None,
+        last_time_step=False,
+    )
+
+    class FailIfCalled:
+        def discover(self, directory, filter_name):
+            raise AssertionError("discovery should not be used in file mode")
+
+    class FailMatcher:
+        def match(self, reference_artifacts, comparison_artifacts, common_pattern):
+            raise AssertionError("matcher should not be used in file mode")
+
+    service = ComparisonService(
+        discovery=FailIfCalled(),
+        matcher=FailMatcher(),
+        comparators=[],
+    )
+
+    report = service.run(request)
+
+    assert len(report) == 1
+    assert report.comparisons[0].reference_file == Path("reference.nc")
+    assert report.comparisons[0].comparison_file == Path("different-name.nc")

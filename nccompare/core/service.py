@@ -8,10 +8,11 @@ from nccompare.comparators import NetcdfComparator
 from nccompare.discovery import FileSystemArtifactDiscovery
 from nccompare.exceptions import NoMatchFound, UnsupportedArtifactTypeError
 from nccompare.matching import DefaultArtifactMatcher
+from nccompare.model.artifact import Artifact
 from nccompare.model.comparison import Comparison
 from nccompare.model.match import ArtifactMatch
 from nccompare.model.report import ComparisonReport
-from nccompare.model.request import CompareRequest
+from nccompare.model.request import CompareMode, CompareRequest
 
 class ComparisonService:
     """Coordinate discovery, matching, and comparison for one request."""
@@ -30,16 +31,36 @@ class ComparisonService:
         )
 
     def run(self, request: CompareRequest) -> ComparisonReport:
-        reference_artifacts = self.discovery.discover(request.reference_root, request.filter_name)
-        comparison_artifacts = self.discovery.discover(request.comparison_root, request.filter_name)
-
-        matches = self.matcher.match(reference_artifacts, comparison_artifacts, request.common_pattern)
+        if request.input_mode is CompareMode.FILES:
+            matches = [self._build_explicit_file_match(request)]
+        else:
+            reference_artifacts = self.discovery.discover(
+                request.reference_path,
+                request.filter_name,
+            )
+            comparison_artifacts = self.discovery.discover(
+                request.comparison_path,
+                request.filter_name,
+            )
+            matches = self.matcher.match(
+                reference_artifacts,
+                comparison_artifacts,
+                request.common_pattern,
+            )
 
         report = ComparisonReport(request=request)
         for match in matches:
             report.append(self._compare_match(match, request))
 
         return report
+
+    @staticmethod
+    def _build_explicit_file_match(request: CompareRequest) -> ArtifactMatch:
+        """Create a direct file-to-file match without discovery or name matching."""
+        return ArtifactMatch(
+            reference=Artifact.from_path(request.reference_path),
+            comparison=Artifact.from_path(request.comparison_path),
+        )
 
     def _compare_match(self, match: ArtifactMatch, request: CompareRequest) -> Comparison:
         if match.comparison is None:

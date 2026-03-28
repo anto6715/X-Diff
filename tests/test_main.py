@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from nccompare.core import main
+from nccompare.model import CompareMode
 
 def test_load_files_returns_only_matching_files(tmp_path):
     matching_file = tmp_path / "kept.nc"
@@ -30,17 +31,18 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
     monkeypatch.setattr(main.ComparisonService, "default", lambda: fake_service)
 
     report = main.execute(
-        Path("ref-dir"),
-        Path("cmp-dir"),
-        "*.nc",
-        r"\d{8}\.nc",
-        ["temp"],
-        True,
+        reference_path=Path("ref-dir"),
+        comparison_path=Path("cmp-dir"),
+        filter_name="*.nc",
+        common_pattern=r"\d{8}\.nc",
+        variables=["temp"],
+        last_time_step=True,
     )
 
     assert report is fake_service.report
-    assert fake_service.request.reference_root == Path("ref-dir")
-    assert fake_service.request.comparison_root == Path("cmp-dir")
+    assert fake_service.request.reference_path == Path("ref-dir")
+    assert fake_service.request.comparison_path == Path("cmp-dir")
+    assert fake_service.request.input_mode is CompareMode.DIRECTORIES
     assert fake_service.request.filter_name == "*.nc"
     assert fake_service.request.common_pattern == r"\d{8}\.nc"
     assert fake_service.request.variables == ("temp",)
@@ -49,8 +51,9 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
 
 def test_build_request_normalizes_default_variable_selection_to_none():
     request = main.build_request(
-        folder1=Path("ref-dir"),
-        folder2=Path("cmp-dir"),
+        reference_path=Path("ref-dir"),
+        comparison_path=Path("cmp-dir"),
     )
 
     assert request.variables is None
+    assert request.input_mode is CompareMode.DIRECTORIES

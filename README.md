@@ -62,24 +62,17 @@ source .venv/bin/activate
 ```
 
 ```shell
-ncpare [-h] [-f FILTER_NAME] [--common-pattern COMMON_PATTERN] [-v VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
+ncpare [OPTIONS] COMMAND [ARGS]...
 
-netCDF Comparison Tool
+  netCDF comparison tool.
 
-positional arguments:
-  folder1               Path of first folder to compare
-  folder2               Path of second folder to compare
+Options:
+  --version   Show the version and exit.
+  -h, --help  Show this message and exit.
 
-options:
-  -h, --help            show this help message and exit
-  -f, --filter FILTER_NAME
-                        Filter to select files to compare. Examples: *.nc, *_grid_*
-  --common-pattern COMMON_PATTERN
-                        Common file pattern in two files to compareEs mfsX_date.nc and expX_date.nc -> date.nc is the common part
-  -v, --variables VARIABLES [VARIABLES ...]
-                        Variable to compare
-  --last_time_step      If True, compare only the last time step available in each file
-  -V, --version         Print version and exit
+Commands:
+  dirs   Compare two directories of netCDF files.
+  files  Compare two netCDF files directly, even if their filenames differ.
 
 ```
 
@@ -88,7 +81,7 @@ options:
 It is possible to choose which parameter to compare:
 
 ```shell
-ncpare folder1 folder2 -v "votemper" "vosaline"
+ncpare dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
@@ -100,12 +93,18 @@ As default **ncpare** read iterate over all files in **folder1** and expect to f
 it is possible to select only a subset of input files. For example:
 
 ```shell
-ncpare folder1 folder2 -f "*_grid_T.nc"
+ncpare dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
 
-It is possible to compare two files also if the filenames are slightly different if they have a common pattern.
+It is possible to compare two files with different filenames directly:
+
+```shell
+ncpare files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+```
+
+For directory comparisons, it is still possible to match files with different names if they share a common pattern.
 For example, if we have:
 
 * `a/my-simu_19820101_grid_T.nc`
@@ -113,7 +112,7 @@ For example, if we have:
 
 It is still possible to compare the file with:
 ```shell
-ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
+ncpare dirs folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`

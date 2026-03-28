@@ -7,19 +7,21 @@ import nccompare.conf as settings
 
 from nccompare.core.service import ComparisonService
 from nccompare.discovery import FileSystemArtifactDiscovery
-from nccompare.model import CompareRequest, ComparisonReport
+from nccompare.model import CompareMode, CompareRequest, ComparisonReport
 
 def execute(
-    folder1: Path,
-    folder2: Path,
-    filter_name: str,
-    common_pattern: str,
-    variables: Iterable[str] | object,
-    last_time_step: bool,
+    reference_path: Path,
+    comparison_path: Path,
+    filter_name: str = settings.DEFAULT_NAME_TO_COMPARE,
+    common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
+    variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
+    last_time_step: bool = False,
+    input_mode: CompareMode = CompareMode.DIRECTORIES,
 ) -> ComparisonReport:
     request = build_request(
-        folder1=folder1,
-        folder2=folder2,
+        reference_path=reference_path,
+        comparison_path=comparison_path,
+        input_mode=input_mode,
         filter_name=filter_name,
         common_pattern=common_pattern,
         variables=variables,
@@ -29,8 +31,9 @@ def execute(
 
 
 def build_request(
-    folder1: Path,
-    folder2: Path,
+    reference_path: Path,
+    comparison_path: Path,
+    input_mode: CompareMode = CompareMode.DIRECTORIES,
     filter_name: str = settings.DEFAULT_NAME_TO_COMPARE,
     common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
@@ -38,8 +41,9 @@ def build_request(
 ) -> CompareRequest:
     """Normalize legacy execute arguments into a service request."""
     return CompareRequest(
-        reference_root=folder1,
-        comparison_root=folder2,
+        input_mode=input_mode,
+        reference_path=reference_path,
+        comparison_path=comparison_path,
         filter_name=filter_name,
         common_pattern=common_pattern,
         variables=normalize_variables(variables),
