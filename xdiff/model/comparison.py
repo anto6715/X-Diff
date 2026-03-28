@@ -9,6 +9,7 @@ from typing import Iterator
 from xdiff.model.artifact import Artifact
 from xdiff.model.compare_result import CompareResult
 
+
 @dataclass(slots=True)
 class Comparison:
     """Comparison outcome for a matched artifact pair."""

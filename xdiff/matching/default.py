@@ -6,6 +6,7 @@ from xdiff.model.artifact import Artifact
 from xdiff.model.match import ArtifactMatch
 from xdiff.utils.regex import common_pattern_exists
 
+
 class DefaultArtifactMatcher:
     """Match artifacts by relative path and optional common-pattern fallback."""
 

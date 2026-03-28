@@ -19,6 +19,7 @@ from xdiff.compare import compare
 from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
 from xdiff.model import CompareResult
 
+
 def make_data_array(values, dims=("x",), dtype=None):
     array = np.array(values, dtype=dtype) if dtype is not None else np.array(values)
     return xr.DataArray(array, dims=dims)

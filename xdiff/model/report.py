@@ -8,6 +8,7 @@ from typing import Iterator
 from xdiff.model.comparison import Comparison
 from xdiff.model.request import CompareRequest
 
+
 @dataclass(slots=True)
 class ComparisonReport:
     """Top-level comparison outcome for a request."""

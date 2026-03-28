@@ -9,6 +9,7 @@ from xdiff.model.comparison import Comparison
 from xdiff.model.match import ArtifactMatch
 from xdiff.model.request import CompareRequest
 
+
 class ArtifactComparator(ABC):
     """Compares a matched pair of artifacts."""
 

@@ -4,6 +4,7 @@ import xdiff
 
 from xdiff.core import main as main_module
 
+
 def execute(**kwargs):
     xdiff.setup()
     get_version = kwargs.pop("get_version", False)

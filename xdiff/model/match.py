@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from xdiff.model.artifact import Artifact
 
+
 @dataclass(frozen=True, slots=True)
 class ArtifactMatch:
     """A candidate pair of artifacts to compare."""

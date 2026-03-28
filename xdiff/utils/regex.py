@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+
 def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool:
     """
     Check if pattern exists in first string and second string and if they match exactly the same string

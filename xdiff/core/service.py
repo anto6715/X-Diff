@@ -14,6 +14,7 @@ from xdiff.model.match import ArtifactMatch
 from xdiff.model.report import ComparisonReport
 from xdiff.model.request import CompareMode, CompareRequest
 
+
 class ComparisonService:
     """Coordinate discovery, matching, and comparison for one request."""
 

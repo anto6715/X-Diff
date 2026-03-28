@@ -9,6 +9,7 @@ from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.model import CompareMode, CompareRequest, ComparisonReport
 
+
 def execute(
     reference_path: Path,
     comparison_path: Path,

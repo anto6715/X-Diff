@@ -13,6 +13,7 @@ from xdiff.conf import settings
 from xdiff.model import CompareMode
 from xdiff.printlib import formatter
 
+
 def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
     """Ensure the explicit files command only accepts netCDF inputs for now."""
     if value is None:
