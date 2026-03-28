@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ncCompare"
-version = "0.2.5"
+version = "0.2.6"
 description = "netCDF Comparison Tool"
 authors = ["Antonio Mariani <antonio.mariani@cmcc.it>"]
 readme = "README.md"
