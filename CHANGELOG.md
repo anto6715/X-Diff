@@ -6,6 +6,13 @@ This repository uses `towncrier` to collect release-note fragments for unrelease
 
 <!-- towncrier release notes start -->
 
+## 0.2.6 (2026-03-28)
+
+### Miscellaneous
+
+- Added Towncrier-based changelog management, seeded the historical changelog, enforced fragment checks in pull-request CI, and automated release-branch changelog generation for PRs into `master`.
+
+
 ## 0.2.5 (2025-12-11)
 
 ### 🔧 Bugfixes
