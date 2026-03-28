@@ -5,7 +5,6 @@ import pytest
 from nccompare.conf import settings
 from nccompare.management.cli import get_args
 
-
 def test_get_args_parses_filter_common_pattern_variables_and_last_time_step():
     args = get_args(
         [

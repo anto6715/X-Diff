@@ -1,45 +1,58 @@
-#!/usr/bin/env python
+"""Compatibility layer for the application service entrypoint."""
 
-import logging
 from pathlib import Path
-from typing import List
+from typing import Iterable
 
-from nccompare import compare
-from nccompare.printlib import formatter
-from nccompare.utils.regex import find_file_matches
+import nccompare.conf as settings
 
-# settings
-logger = logging.getLogger("nccompare")
-
+from nccompare.core.service import ComparisonService
+from nccompare.discovery import FileSystemArtifactDiscovery
+from nccompare.model import CompareRequest, ComparisonReport
 
 def execute(
     folder1: Path,
     folder2: Path,
     filter_name: str,
     common_pattern: str,
-    variables: List[str],
+    variables: Iterable[str] | object,
     last_time_step: bool,
-):
-    ########################
-    # INPUT FILES
-    ########################
-    reference_input_files = load_files(folder1, filter_name)
-    comparison_input_files = load_files(folder2, filter_name)
+) -> ComparisonReport:
+    request = build_request(
+        folder1=folder1,
+        folder2=folder2,
+        filter_name=filter_name,
+        common_pattern=common_pattern,
+        variables=variables,
+        last_time_step=last_time_step,
+    )
+    return ComparisonService.default().run(request)
 
-    ########################
-    # FILES TO COMPARE
-    ########################
-    files_to_compare = find_file_matches(
-        reference_input_files, comparison_input_files, common_pattern
+
+def build_request(
+    folder1: Path,
+    folder2: Path,
+    filter_name: str = settings.DEFAULT_NAME_TO_COMPARE,
+    common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
+    variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
+    last_time_step: bool = False,
+) -> CompareRequest:
+    """Normalize legacy execute arguments into a service request."""
+    return CompareRequest(
+        reference_root=folder1,
+        comparison_root=folder2,
+        filter_name=filter_name,
+        common_pattern=common_pattern,
+        variables=normalize_variables(variables),
+        last_time_step=last_time_step,
     )
 
-    ########################
-    # COMPARISON
-    ########################
-    for result in compare.compare(files_to_compare, variables, last_time_step):
-        formatter.print_comparison(result)
+
+def normalize_variables(variables: Iterable[str] | object) -> tuple[str, ...] | None:
+    if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
+        return None
+    return tuple(variables)
 
 
-def load_files(directory: Path, filter_name: str) -> List[Path]:
-    """Load all files within a directory if they match the filter name"""
-    return [f for f in directory.glob(filter_name) if f.is_file()]
+def load_files(directory: Path, filter_name: str) -> list[Path]:
+    """Compatibility helper preserved for callers and tests."""
+    return FileSystemArtifactDiscovery().list_paths(directory, filter_name)

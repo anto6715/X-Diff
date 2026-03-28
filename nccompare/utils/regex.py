@@ -1,7 +1,9 @@
-import re
-from pathlib import Path
-from typing import List, Dict
+"""Helpers for regex-based artifact and filename matching."""
 
+import re
+
+from pathlib import Path
+from typing import Dict, List
 
 def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool:
     """
@@ -56,9 +58,7 @@ def find_file_matches(
     for ref in reference_input_files:
         to_compare[ref] = []
         for cmp in comparison_input_files:
-            if ref.name == cmp.name or common_pattern_exists(
-                ref.name, cmp.name, common_pattern
-            ):
+            if ref.name == cmp.name or common_pattern_exists(ref.name, cmp.name, common_pattern):
                 to_compare[ref].append(cmp)
 
     return to_compare

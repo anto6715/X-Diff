@@ -1,11 +1,14 @@
+"""CLI argument parsing and direct script execution."""
+
 import argparse
 import importlib.metadata
 import time
+
 from pathlib import Path
 
 from nccompare import core
 from nccompare.conf import settings
-
+from nccompare.printlib import formatter
 
 def get_args(raw_args=None):
     parse = argparse.ArgumentParser(description="netCDF Comparison Tool")
@@ -54,5 +57,5 @@ def get_args(raw_args=None):
 if __name__ == "__main__":
     start = time.perf_counter()
     args: argparse.Namespace = get_args()
-    core.execute(**vars(args))
+    formatter.print_report(core.execute(**vars(args)))
     print(f"Run time: {time.perf_counter() - start}Sec")

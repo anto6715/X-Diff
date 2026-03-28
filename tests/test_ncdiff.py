@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 
 import nccompare.conf as settings
+
 from nccompare.compare.ncdiff import (
     compare,
     compare_datasets,
@@ -17,7 +18,6 @@ from nccompare.compare.ncdiff import (
 )
 from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
 from nccompare.model import CompareResult
-
 
 def make_data_array(values, dims=("x",), dtype=None):
     array = np.array(values, dtype=dtype) if dtype is not None else np.array(values)
@@ -145,9 +145,7 @@ def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled
         LastTimestepTimeCheckException,
         match="Can't compare time if last time step is enabled",
     ):
-        compare_variables(
-            reference, comparison, "time_counter", last_time_step=True
-        )
+        compare_variables(reference, comparison, "time_counter", last_time_step=True)
 
 
 def test_compare_datasets_records_variable_level_errors():
@@ -167,9 +165,7 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     reference_path = write_dataset(tmp_path, "reference.nc", reference)
     comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
 
-    results = compare_files(
-        reference_path, comparison_path, ["temp"], last_time_step=False
-    )
+    results = compare_files(reference_path, comparison_path, ["temp"], last_time_step=False)
 
     assert len(results) == 1
     assert results[0].variable == "temp"
@@ -193,9 +189,7 @@ def test_compare_yields_one_comparison_for_each_match(monkeypatch):
     monkeypatch.setattr("nccompare.compare.ncdiff.compare_files", fake_compare_files)
 
     reference = Path("reference.nc")
-    comparisons = list(
-        compare({reference: [Path("a.nc"), Path("b.nc")]}, ["temp"], False)
-    )
+    comparisons = list(compare({reference: [Path("a.nc"), Path("b.nc")]}, ["temp"], False))
 
     assert [comparison.comparison_file for comparison in comparisons] == [
         Path("a.nc"),

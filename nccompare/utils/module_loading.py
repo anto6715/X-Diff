@@ -1,6 +1,6 @@
 import sys
-from importlib import import_module
 
+from importlib import import_module
 
 def cached_import(module_path, class_name):
     # Check whether module is loaded and fully initialized.
@@ -26,7 +26,4 @@ def import_string(dotted_path):
     try:
         return cached_import(module_path, class_name)
     except AttributeError as err:
-        raise ImportError(
-            'Module "%s" does not define a "%s" attribute/class'
-            % (module_path, class_name)
-        ) from err
+        raise ImportError('Module "%s" does not define a "%s" attribute/class' % (module_path, class_name)) from err

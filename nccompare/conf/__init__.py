@@ -1,3 +1,26 @@
+"""Public configuration exports."""
+
 from nccompare.conf import global_settings as settings
 
-from nccompare.conf.global_settings import *  # noqa: F403
+DEFAULT_COMMON_PATTERN = settings.DEFAULT_COMMON_PATTERN
+DEFAULT_MAXDEPTH = settings.DEFAULT_MAXDEPTH
+DEFAULT_NAME_TO_COMPARE = settings.DEFAULT_NAME_TO_COMPARE
+DEFAULT_VARIABLES_TO_CHECK = settings.DEFAULT_VARIABLES_TO_CHECK
+DTYPE_NOT_CHECKED = settings.DTYPE_NOT_CHECKED
+TIME_DTYPE = settings.TIME_DTYPE
+LOGGING = settings.LOGGING
+LOGGING_CONFIG = settings.LOGGING_CONFIG
+DEBUG = settings.DEBUG
+
+__all__ = [
+    "settings",
+    "DEFAULT_COMMON_PATTERN",
+    "DEFAULT_MAXDEPTH",
+    "DEFAULT_NAME_TO_COMPARE",
+    "DEFAULT_VARIABLES_TO_CHECK",
+    "DTYPE_NOT_CHECKED",
+    "TIME_DTYPE",
+    "LOGGING",
+    "LOGGING_CONFIG",
+    "DEBUG",
+]

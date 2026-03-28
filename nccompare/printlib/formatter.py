@@ -1,11 +1,14 @@
+"""Rich-based rendering for reports and comparisons."""
+
 from typing import Any
 
 import numpy as np
+
 from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from nccompare.model import CompareResult
+from nccompare.model import CompareResult, ComparisonReport
 from nccompare.model.comparison import Comparison
 
 COLUMNS = ["RESULT", "MIN DIFF", "MAX DIFF", "REL ERR", "MASK", "VAR", "DESCR"]
@@ -15,15 +18,16 @@ PASSED = "[green] :heavy_check_mark: PASSED"
 
 
 def get_result(cr: CompareResult) -> str:
-    if (
-        float(cr.min_diff) == 0.0
-        and float(cr.max_diff) == 0.0
-        and cr.mask_equal
-        and float(cr.relative_error) == 0.0
-    ):
+    if cr.passed:
         return PASSED
 
     return FAILED
+
+
+def print_report(report: ComparisonReport) -> None:
+    """Render a full report to the console."""
+    for comparison in report:
+        print_comparison(comparison)
 
 
 def print_comparison(comparison: Comparison) -> None:
@@ -39,9 +43,7 @@ def print_comparison(comparison: Comparison) -> None:
         table.add_column(column)
 
     if comparison.exception is not None:
-        table.add_row(
-            FAILED, *["-" for _ in range(len(COLUMNS) - 1)], str(comparison.exception)
-        )
+        table.add_row(FAILED, *["-" for _ in range(len(COLUMNS) - 1)], str(comparison.exception))
     else:
         for c in comparison:
             result = get_result(c)
