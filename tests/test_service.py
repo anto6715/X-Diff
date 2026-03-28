@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from nccompare.core.service import ComparisonService
-from nccompare.matching import DefaultArtifactMatcher
-from nccompare.model import Artifact, ArtifactKind, CompareMode, CompareRequest
+from xdiff.core.service import ComparisonService
+from xdiff.matching import DefaultArtifactMatcher
+from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest
 
 class StaticDiscovery:
     def __init__(self, artifacts_by_directory):

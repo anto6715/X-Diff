@@ -34,7 +34,7 @@ uv venv
 source .venv/bin/activate
 ```
 
-Then install `nccompare` inside the active environment:
+Then install `xdiff` inside the active environment:
 
 ```shell
 uv pip install --python .venv/bin/python -e .
@@ -49,7 +49,7 @@ xdiff --help
 ### Install globally with uv tool
 
 ```shell
-uv tool install nccompare
+uv tool install xdiff
 ```
 
 `uv tool install` installs `xdiff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.

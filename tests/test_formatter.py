@@ -1,4 +1,4 @@
-from nccompare.printlib import formatter
+from xdiff.printlib import formatter
 
 def test_print_report_renders_each_comparison(monkeypatch):
     rendered = []

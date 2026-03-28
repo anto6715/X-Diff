@@ -4,11 +4,11 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from nccompare.conf import settings
-from nccompare.management.cli import cli
-from nccompare.model import CompareMode
+from xdiff.conf import settings
+from xdiff.management.cli import cli
+from xdiff.model import CompareMode
 
-cli_module = importlib.import_module("nccompare.management.cli")
+cli_module = importlib.import_module("xdiff.management.cli")
 
 
 def test_root_help_lists_subcommands():

@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import xarray as xr
 
-import nccompare.conf as settings
+import xdiff.conf as settings
 
-from nccompare.comparators.netcdf import (
+from xdiff.comparators.netcdf import (
     compare_datasets,
     compare_files,
     compare_variables,
@@ -15,9 +15,9 @@ from nccompare.comparators.netcdf import (
     get_dataset_variables,
     select_last_time_step,
 )
-from nccompare.compare import compare
-from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
-from nccompare.model import CompareResult
+from xdiff.compare import compare
+from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
+from xdiff.model import CompareResult
 
 def make_data_array(values, dims=("x",), dtype=None):
     array = np.array(values, dtype=dtype) if dtype is not None else np.array(values)
@@ -186,7 +186,7 @@ def test_compare_yields_one_comparison_for_each_match(monkeypatch):
         assert kwargs["last_time_step"] is False
         return [CompareResult(variable=f"{file1.name}:{file2.name}")]
 
-    monkeypatch.setattr("nccompare.compare.ncdiff.compare_files", fake_compare_files)
+    monkeypatch.setattr("xdiff.compare.ncdiff.compare_files", fake_compare_files)
 
     reference = Path("reference.nc")
     comparisons = list(compare({reference: [Path("a.nc"), Path("b.nc")]}, ["temp"], False))

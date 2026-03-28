@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "ncCompare"
+name = "xdiff"
 version = "0.2.6"
 description = "netCDF Comparison Tool"
 authors = ["Antonio Mariani <antonio.mariani@cmcc.it>"]
@@ -24,13 +24,13 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["nccompare"]
+source = ["xdiff"]
 
 [tool.coverage.report]
 show_missing = true
 
 [tool.towncrier]
-package = "nccompare"
+package = "xdiff"
 filename = "CHANGELOG.md"
 directory = "newsfragments"
 start_string = "<!-- towncrier release notes start -->\n"
@@ -63,4 +63,4 @@ build-backend = "poetry.core.masonry.api"
 
 
 [tool.poetry.scripts]
-xdiff = "nccompare.management:start_from_command_line_interface"
+xdiff = "xdiff.management:start_from_command_line_interface"

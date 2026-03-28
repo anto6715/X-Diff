@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nccompare.utils.regex import common_pattern_exists, find_file_matches
+from xdiff.utils.regex import common_pattern_exists, find_file_matches
 
 def test_common_pattern_exists_returns_false_when_pattern_is_none():
     assert common_pattern_exists("a.nc", "b.nc", None) is False

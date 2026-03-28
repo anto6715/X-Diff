@@ -1,4 +1,5 @@
-from nccompare import management
+from xdiff import management
+
 
 def test_start_from_command_line_interface_executes_and_renders(monkeypatch):
     called = []

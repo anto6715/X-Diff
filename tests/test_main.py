@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from nccompare.core import main
-from nccompare.model import CompareMode
+from xdiff.core import main
+from xdiff.model import CompareMode
 
 def test_load_files_returns_only_matching_files(tmp_path):
     matching_file = tmp_path / "kept.nc"
