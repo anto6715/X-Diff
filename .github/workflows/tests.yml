@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install Poetry
+        run: python -m pip install "poetry==1.8.3"
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Fetch PR base branch for towncrier check
+        if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
+        run: git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+
+      - name: Validate changelog fragment
+        if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
+        run: poetry run towncrier check --compare-with origin/${{ github.base_ref }}
+
+      - name: Run tests with coverage
+        run: poetry run pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false

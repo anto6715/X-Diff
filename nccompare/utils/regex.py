@@ -10,7 +10,7 @@ def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool
     Example:
         first_str = "mfs-eas8_20150101_grid_T.nc"
         second_str = "my-simu_20150101_grid_T.nc"
-        pattern = "\d{8}"
+        pattern = "\\d{8}"
 
     Args:
         first_str: First string
