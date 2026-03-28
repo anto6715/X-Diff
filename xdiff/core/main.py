@@ -7,7 +7,7 @@ import xdiff.conf as settings
 
 from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
-from xdiff.model import CompareMode, CompareRequest, ComparisonReport
+from xdiff.model import CompareMode, CompareRequest, ComparisonReport, ExecutionMode
 
 
 def execute(
@@ -18,6 +18,10 @@ def execute(
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
     input_mode: CompareMode = CompareMode.DIRECTORIES,
+    execution_mode: ExecutionMode | str = ExecutionMode.SERIAL,
+    dask_scheduler: str | None = None,
+    dask_scheduler_file: Path | None = None,
+    dask_workers: int | None = None,
 ) -> ComparisonReport:
     request = build_request(
         reference_path=reference_path,
@@ -27,6 +31,10 @@ def execute(
         common_pattern=common_pattern,
         variables=variables,
         last_time_step=last_time_step,
+        execution_mode=execution_mode,
+        dask_scheduler=dask_scheduler,
+        dask_scheduler_file=dask_scheduler_file,
+        dask_workers=dask_workers,
     )
     return ComparisonService.default().run(request)
 
@@ -39,6 +47,10 @@ def build_request(
     common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
+    execution_mode: ExecutionMode | str = ExecutionMode.SERIAL,
+    dask_scheduler: str | None = None,
+    dask_scheduler_file: Path | None = None,
+    dask_workers: int | None = None,
 ) -> CompareRequest:
     """Normalize legacy execute arguments into a service request."""
     return CompareRequest(
@@ -49,6 +61,10 @@ def build_request(
         common_pattern=common_pattern,
         variables=normalize_variables(variables),
         last_time_step=last_time_step,
+        execution_mode=normalize_execution_mode(execution_mode),
+        dask_scheduler=dask_scheduler,
+        dask_scheduler_file=dask_scheduler_file,
+        dask_workers=dask_workers,
     )
 
 
@@ -56,6 +72,12 @@ def normalize_variables(variables: Iterable[str] | object) -> tuple[str, ...] | 
     if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
         return None
     return tuple(variables)
+
+
+def normalize_execution_mode(execution_mode: ExecutionMode | str) -> ExecutionMode:
+    if isinstance(execution_mode, ExecutionMode):
+        return execution_mode
+    return ExecutionMode(execution_mode)
 
 
 def load_files(directory: Path, filter_name: str) -> list[Path]:

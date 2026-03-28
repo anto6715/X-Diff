@@ -60,6 +60,18 @@ class Comparison:
     def set_exception(self, exception: Exception) -> None:
         self.exception = exception
 
+    @property
+    def passed(self) -> bool:
+        return (
+            self.exception is None
+            and len(self.compare_results) > 0
+            and all(result.passed for result in self.compare_results)
+        )
+
+    @property
+    def failed(self) -> bool:
+        return not self.passed
+
     def __str__(self) -> str:
         result_count = len(self.compare_results)
 

@@ -10,7 +10,8 @@ import click
 
 from xdiff import core
 from xdiff.conf import settings
-from xdiff.model import CompareMode
+from xdiff.model import CompareMode, ExecutionMode
+from xdiff.model.request import validate_execution_options
 from xdiff.printlib import formatter
 
 
@@ -27,7 +28,64 @@ def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
 
 def _render_report(**kwargs) -> None:
     """Execute a comparison request and print the resulting report."""
-    formatter.print_report(core.execute(**kwargs))
+    try:
+        report = core.execute(**kwargs)
+        formatter.print_report(report)
+        if getattr(report, "has_failures", False):
+            raise click.exceptions.Exit(1)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _parse_execution_mode(_ctx, _param, value: str) -> ExecutionMode:
+    return ExecutionMode(value)
+
+
+def _validate_runtime_options(
+    execution_mode: ExecutionMode,
+    dask_scheduler: str | None,
+    dask_scheduler_file: Path | None,
+    dask_workers: int | None,
+) -> None:
+    try:
+        validate_execution_options(
+            execution_mode=execution_mode,
+            dask_scheduler=dask_scheduler,
+            dask_scheduler_file=dask_scheduler_file,
+            dask_workers=dask_workers,
+        )
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+
+def _execution_options(command):
+    command = click.option(
+        "--dask-workers",
+        type=click.IntRange(min=1),
+        metavar="N",
+        help="Start a local Dask cluster with N worker processes.",
+    )(command)
+    command = click.option(
+        "--dask-scheduler-file",
+        type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+        help="Attach to an existing Dask cluster using a scheduler file.",
+    )(command)
+    command = click.option(
+        "--dask-scheduler",
+        help="Attach to an existing Dask cluster using its scheduler address.",
+    )(command)
+    command = click.option(
+        "--execution-mode",
+        type=click.Choice([mode.value for mode in ExecutionMode], case_sensitive=False),
+        default=ExecutionMode.SERIAL.value,
+        show_default=True,
+        callback=_parse_execution_mode,
+        help=(
+            "Execution strategy. 'files' submits one Dask task per matched file pair, "
+            "while 'arrays' keeps each variable comparison chunked with Dask."
+        ),
+    )(command)
+    return command
 
 
 @click.group(
@@ -82,6 +140,7 @@ def cli(ctx: click.Context) -> None:
     default=False,
     help="If enabled, compare only the last time step available in each file.",
 )
+@_execution_options
 def compare_directories(
     reference_path: Path,
     comparison_path: Path,
@@ -89,8 +148,13 @@ def compare_directories(
     common_pattern: str | None,
     variables: tuple[str, ...],
     last_time_step: bool,
+    execution_mode: ExecutionMode,
+    dask_scheduler: str | None,
+    dask_scheduler_file: Path | None,
+    dask_workers: int | None,
 ) -> None:
     """Compare two directories of netCDF files."""
+    _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
         reference_path=reference_path,
         comparison_path=comparison_path,
@@ -99,6 +163,10 @@ def compare_directories(
         common_pattern=common_pattern,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
+        execution_mode=execution_mode,
+        dask_scheduler=dask_scheduler,
+        dask_scheduler_file=dask_scheduler_file,
+        dask_workers=dask_workers,
     )
 
 
@@ -125,13 +193,19 @@ def compare_directories(
     default=False,
     help="If enabled, compare only the last time step available in each file.",
 )
+@_execution_options
 def compare_files(
     reference_path: Path,
     comparison_path: Path,
     variables: tuple[str, ...],
     last_time_step: bool,
+    execution_mode: ExecutionMode,
+    dask_scheduler: str | None,
+    dask_scheduler_file: Path | None,
+    dask_workers: int | None,
 ) -> None:
     """Compare two netCDF files directly, even if their filenames differ."""
+    _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
         reference_path=reference_path,
         comparison_path=comparison_path,
@@ -140,6 +214,10 @@ def compare_files(
         common_pattern=settings.DEFAULT_COMMON_PATTERN,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
+        execution_mode=execution_mode,
+        dask_scheduler=dask_scheduler,
+        dask_scheduler_file=dask_scheduler_file,
+        dask_workers=dask_workers,
     )
 
 
