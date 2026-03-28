@@ -2,7 +2,6 @@ import sys
 
 from importlib import import_module
 
-
 def cached_import(module_path, class_name):
     # Check whether module is loaded and fully initialized.
     if not (

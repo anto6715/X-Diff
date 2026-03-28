@@ -8,7 +8,6 @@ from typing import Iterator
 from nccompare.model.comparison import Comparison
 from nccompare.model.request import CompareRequest
 
-
 @dataclass(slots=True)
 class ComparisonReport:
     """Top-level comparison outcome for a request."""

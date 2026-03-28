@@ -19,7 +19,6 @@ from nccompare.compare import compare
 from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
 from nccompare.model import CompareResult
 
-
 def make_data_array(values, dims=("x",), dtype=None):
     array = np.array(values, dtype=dtype) if dtype is not None else np.array(values)
     return xr.DataArray(array, dims=dims)

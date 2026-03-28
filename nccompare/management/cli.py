@@ -10,7 +10,6 @@ from nccompare import core
 from nccompare.conf import settings
 from nccompare.printlib import formatter
 
-
 def get_args(raw_args=None):
     parse = argparse.ArgumentParser(description="netCDF Comparison Tool")
     # General args

@@ -7,7 +7,6 @@ from nccompare.comparators.netcdf import compare_files
 from nccompare.exceptions import NoMatchFound
 from nccompare.model.comparison import Comparison
 
-
 def compare(
     compare_match: dict[Path, list[Path]],
     variables: Iterable[str] | tuple[str, ...] | list[str] | object | None,

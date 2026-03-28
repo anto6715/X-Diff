@@ -9,7 +9,6 @@ from nccompare.core.service import ComparisonService
 from nccompare.discovery import FileSystemArtifactDiscovery
 from nccompare.model import CompareRequest, ComparisonReport
 
-
 def execute(
     folder1: Path,
     folder2: Path,

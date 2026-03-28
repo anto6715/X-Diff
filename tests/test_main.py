@@ -2,7 +2,6 @@ from pathlib import Path
 
 from nccompare.core import main
 
-
 def test_load_files_returns_only_matching_files(tmp_path):
     matching_file = tmp_path / "kept.nc"
     matching_file.touch()
