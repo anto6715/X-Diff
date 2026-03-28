@@ -52,12 +52,12 @@ jobs:
       - name: Commit generated release notes
         shell: bash
         run: |
-          if git diff --quiet -- pyproject.toml CHANGELOG.md newsfragments; then
+          if git diff --quiet -- pyproject.toml CHANGES.md changes.d; then
             echo "No changelog changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml CHANGELOG.md newsfragments
+          git add pyproject.toml CHANGES.md changes.d
           git commit -m "Prepare release $RELEASE_VERSION changelog"
           git push origin HEAD:${GITHUB_HEAD_REF}

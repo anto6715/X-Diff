@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import xarray as xr
 
-import nccompare.conf as settings
-from nccompare.compare.ncdiff import (
-    compare,
+import xdiff.conf as settings
+
+from xdiff.comparators.netcdf import (
     compare_datasets,
     compare_files,
     compare_variables,
@@ -15,8 +15,9 @@ from nccompare.compare.ncdiff import (
     get_dataset_variables,
     select_last_time_step,
 )
-from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
-from nccompare.model import CompareResult
+from xdiff.compare import compare
+from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
+from xdiff.model import CompareResult
 
 
 def make_data_array(values, dims=("x",), dtype=None):
@@ -145,9 +146,7 @@ def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled
         LastTimestepTimeCheckException,
         match="Can't compare time if last time step is enabled",
     ):
-        compare_variables(
-            reference, comparison, "time_counter", last_time_step=True
-        )
+        compare_variables(reference, comparison, "time_counter", last_time_step=True)
 
 
 def test_compare_datasets_records_variable_level_errors():
@@ -167,9 +166,7 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     reference_path = write_dataset(tmp_path, "reference.nc", reference)
     comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
 
-    results = compare_files(
-        reference_path, comparison_path, ["temp"], last_time_step=False
-    )
+    results = compare_files(reference_path, comparison_path, ["temp"], last_time_step=False)
 
     assert len(results) == 1
     assert results[0].variable == "temp"
@@ -190,12 +187,10 @@ def test_compare_yields_one_comparison_for_each_match(monkeypatch):
         assert kwargs["last_time_step"] is False
         return [CompareResult(variable=f"{file1.name}:{file2.name}")]
 
-    monkeypatch.setattr("nccompare.compare.ncdiff.compare_files", fake_compare_files)
+    monkeypatch.setattr("xdiff.compare.ncdiff.compare_files", fake_compare_files)
 
     reference = Path("reference.nc")
-    comparisons = list(
-        compare({reference: [Path("a.nc"), Path("b.nc")]}, ["temp"], False)
-    )
+    comparisons = list(compare({reference: [Path("a.nc"), Path("b.nc")]}, ["temp"], False))
 
     assert [comparison.comparison_file for comparison in comparisons] == [
         Path("a.nc"),

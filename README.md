@@ -1,7 +1,8 @@
-# netCDF Diff Comparison tool - ncpare
+# X-Diff
 
-`ncpare` is a tool for comparing netCDF files, providing a detailed diff of their contents. It is designed to help users
-identify differences between datasets stored in netCDF format.
+`xdiff` is the CLI for **X-Diff**, a general diff tool name where `X` can stand for different comparison targets.
+Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
+in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
 [![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
@@ -33,7 +34,7 @@ uv venv
 source .venv/bin/activate
 ```
 
-Then install `nccompare` inside the active environment:
+Then install `xdiff` inside the active environment:
 
 ```shell
 uv pip install --python .venv/bin/python -e .
@@ -42,16 +43,16 @@ uv pip install --python .venv/bin/python -e .
 Run the CLI from the active environment:
 
 ```shell
-ncpare --help
+xdiff --help
 ```
 
 ### Install globally with uv tool
 
 ```shell
-uv tool install nccompare
+uv tool install xdiff
 ```
 
-`uv tool install` installs `ncpare` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
+`uv tool install` installs `xdiff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
 
 ## Usage
 
@@ -62,24 +63,17 @@ source .venv/bin/activate
 ```
 
 ```shell
-ncpare [-h] [-f FILTER_NAME] [--common-pattern COMMON_PATTERN] [-v VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
+xdiff [OPTIONS] COMMAND [ARGS]...
 
-netCDF Comparison Tool
+  netCDF comparison tool.
 
-positional arguments:
-  folder1               Path of first folder to compare
-  folder2               Path of second folder to compare
+Options:
+  --version   Show the version and exit.
+  -h, --help  Show this message and exit.
 
-options:
-  -h, --help            show this help message and exit
-  -f, --filter FILTER_NAME
-                        Filter to select files to compare. Examples: *.nc, *_grid_*
-  --common-pattern COMMON_PATTERN
-                        Common file pattern in two files to compareEs mfsX_date.nc and expX_date.nc -> date.nc is the common part
-  -v, --variables VARIABLES [VARIABLES ...]
-                        Variable to compare
-  --last_time_step      If True, compare only the last time step available in each file
-  -V, --version         Print version and exit
+Commands:
+  dirs   Compare two directories of netCDF files.
+  files  Compare two netCDF files directly, even if their filenames differ.
 
 ```
 
@@ -88,7 +82,7 @@ options:
 It is possible to choose which parameter to compare:
 
 ```shell
-ncpare folder1 folder2 -v "votemper" "vosaline"
+xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
@@ -96,16 +90,22 @@ ncpare folder1 folder2 -v "votemper" "vosaline"
 
 ### Filter files
 
-As default **ncpare** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
+As default **xdiff** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
 it is possible to select only a subset of input files. For example:
 
 ```shell
-ncpare folder1 folder2 -f "*_grid_T.nc"
+xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
 
-It is possible to compare two files also if the filenames are slightly different if they have a common pattern.
+It is possible to compare two files with different filenames directly:
+
+```shell
+xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+```
+
+For directory comparisons, it is still possible to match files with different names if they share a common pattern.
 For example, if we have:
 
 * `a/my-simu_19820101_grid_T.nc`
@@ -113,7 +113,7 @@ For example, if we have:
 
 It is still possible to compare the file with:
 ```shell
-ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
+xdiff dirs folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`
@@ -133,20 +133,37 @@ The Codecov badge will start showing a real percentage after the workflow runs s
 
 ## Changelog
 
-This repository uses `towncrier` for release notes. Every pull request must include a fragment under `newsfragments/` for user-facing changes, for example:
+This repository uses `towncrier` for release notes. Every pull request must include a changelog entry under `changes.d/` for user-facing changes, for example:
 
 ```text
-newsfragments/+cli-filter.bugfix.md
-newsfragments/+tests.doc.md
+changes.d/123.bugfix.md
+changes.d/124.doc.md
+changes.d/+internal-cleanup.misc.md
 ```
 
-Validate fragments locally with:
+Use the pull request number as the filename prefix when you want Towncrier to render a linked PR reference. With the current configuration, `changes.d/123.bugfix.md` will render as `[#123]` in `CHANGES.md`. Use `+` instead of a number when there is no associated PR to link.
+
+Create a changelog entry with the Towncrier CLI:
+
+```shell
+poetry run towncrier create 123.bugfix.md --content "Improved CLI filtering so directory comparisons skip unrelated files more reliably."
+```
+
+Create an orphan entry when there is no associated PR:
+
+```shell
+poetry run towncrier create +internal-cleanup.misc.md --content "Cleaned up internal comparison helpers and simplified related tests."
+```
+
+If you omit `--content`, `towncrier create` will open your editor so you can write the entry interactively.
+
+Validate or preview changelog entries locally with:
 
 ```shell
 poetry run towncrier build --draft --version 0.2.6
 ```
 
-To mirror the CI-style branch check after committing or staging your fragment:
+To mirror the CI-style branch check after committing or staging your changelog entry:
 
 ```shell
 git fetch origin master:refs/remotes/origin/master
@@ -157,9 +174,11 @@ Release notes are generated from `release/X.Y.Z` branches. Open a PR from `relea
 
 1. set `pyproject.toml` to version `X.Y.Z`
 2. run `towncrier build --yes --version X.Y.Z`
-3. commit the updated `CHANGELOG.md` and consumed fragments back to the release branch
+3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
 
-After the release PR is merged, merge `master` back into `develop` so the generated changelog and fragment deletions return to the integration branch.
+In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](/work/antonio/dev/ncCompare/.github/workflows/release-changelog.yml).
+
+After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
 
 ## Author
 

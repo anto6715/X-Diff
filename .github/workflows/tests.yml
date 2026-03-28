@@ -33,7 +33,7 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
         run: git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
 
-      - name: Validate changelog fragment
+      - name: Validate changelog entries
         if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
         run: poetry run towncrier check --compare-with origin/${{ github.base_ref }}
 
