@@ -133,20 +133,20 @@ The Codecov badge will start showing a real percentage after the workflow runs s
 
 ## Changelog
 
-This repository uses `towncrier` for release notes. Every pull request must include a fragment under `newsfragments/` for user-facing changes, for example:
+This repository uses `towncrier` for release notes. Every pull request must include a changelog entry under `changes.d/` for user-facing changes, for example:
 
 ```text
-newsfragments/+cli-filter.bugfix.md
-newsfragments/+tests.doc.md
+changes.d/+cli-filter.bugfix.md
+changes.d/+tests.doc.md
 ```
 
-Validate fragments locally with:
+Validate changelog entries locally with:
 
 ```shell
 poetry run towncrier build --draft --version 0.2.6
 ```
 
-To mirror the CI-style branch check after committing or staging your fragment:
+To mirror the CI-style branch check after committing or staging your changelog entry:
 
 ```shell
 git fetch origin master:refs/remotes/origin/master
@@ -157,9 +157,9 @@ Release notes are generated from `release/X.Y.Z` branches. Open a PR from `relea
 
 1. set `pyproject.toml` to version `X.Y.Z`
 2. run `towncrier build --yes --version X.Y.Z`
-3. commit the updated `CHANGELOG.md` and consumed fragments back to the release branch
+3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
 
-After the release PR is merged, merge `master` back into `develop` so the generated changelog and fragment deletions return to the integration branch.
+After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
 
 ## Author
 

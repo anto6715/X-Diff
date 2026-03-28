@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-This repository uses `towncrier` to collect release-note fragments for unreleased changes.
+This repository uses `towncrier` to collect unreleased changes under `changes.d/`.
 
 <!-- towncrier release notes start -->
 

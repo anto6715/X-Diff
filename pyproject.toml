@@ -30,11 +30,16 @@ source = ["xdiff"]
 show_missing = true
 
 [tool.towncrier]
+directory = "changes.d"
+name = "X-Diff"
 package = "xdiff"
-filename = "CHANGELOG.md"
-directory = "newsfragments"
+filename = "CHANGES.md"
 start_string = "<!-- towncrier release notes start -->\n"
-title_format = "## {version} ({project_date})"
+title_format = "## __[xdiff-{version}](https://github.com/anto6715/X-Diff/tree/{version}) - {project_date}__"
+issue_format = "[#{issue}](https://github.com/anto6715/X-Diff/pull/{issue})"
+underlines = ["", "", ""]
+template = "changes.d/changelog_template.jinja"
+changelog_format = "markdown"
 
 [[tool.towncrier.type]]
 directory = "feature"
