@@ -24,3 +24,19 @@ class ComparisonReport:
 
     def append(self, comparison: Comparison) -> None:
         self.comparisons.append(comparison)
+
+    @property
+    def passed(self) -> bool:
+        return len(self.comparisons) > 0 and all(comparison.passed for comparison in self.comparisons)
+
+    @property
+    def has_failures(self) -> bool:
+        return not self.passed
+
+    @property
+    def passed_count(self) -> int:
+        return sum(comparison.passed for comparison in self.comparisons)
+
+    @property
+    def failed_count(self) -> int:
+        return len(self.comparisons) - self.passed_count

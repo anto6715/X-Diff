@@ -40,12 +40,6 @@ Then install `xdiff` inside the active environment:
 uv pip install --python .venv/bin/python -e .
 ```
 
-Install the optional Dask support when you want file-level parallel execution:
-
-```shell
-uv pip install --python .venv/bin/python -e '.[dask]'
-```
-
 Run the CLI from the active environment:
 
 ```shell
@@ -126,7 +120,7 @@ Notice the regex syntax `.+` to match any pattern before `_19820101`
 
 ### Dask file-level execution
 
-`xdiff` still defaults to serial execution. When you want Dask-backed file-level or chunked-array execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
+`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level or chunked-array execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 

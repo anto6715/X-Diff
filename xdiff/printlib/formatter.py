@@ -43,7 +43,9 @@ def print_comparison(comparison: Comparison) -> None:
         table.add_column(column)
 
     if comparison.exception is not None:
-        table.add_row(FAILED, *["-" for _ in range(len(COLUMNS) - 1)], str(comparison.exception))
+        table.add_row(FAILED, "-", "-", "-", "-", "-", str(comparison.exception))
+    elif len(comparison) == 0:
+        table.add_row(FAILED, "-", "-", "-", "-", "-", "No comparable variables were selected")
     else:
         for c in comparison:
             result = get_result(c)

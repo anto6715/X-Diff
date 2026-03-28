@@ -6,6 +6,7 @@ from click.testing import CliRunner
 
 from xdiff.conf import settings
 from xdiff.management.cli import cli
+from xdiff.model.report import ComparisonReport
 from xdiff.model import CompareMode, ExecutionMode
 
 cli_module = importlib.import_module("xdiff.management.cli")
@@ -236,3 +237,29 @@ def test_files_command_accepts_dask_arrays_mode(monkeypatch):
     assert result.exit_code == 0
     assert captured["kwargs"]["execution_mode"] is ExecutionMode.ARRAYS
     assert captured["kwargs"]["dask_workers"] == 2
+
+
+def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):
+    runner = CliRunner()
+
+    failing_report = ComparisonReport(request=object(), comparisons=[])
+
+    monkeypatch.setattr(cli_module.formatter, "print_report", lambda value: None)
+    monkeypatch.setattr(cli_module.core, "execute", lambda **kwargs: failing_report)
+
+    with runner.isolated_filesystem():
+        ref_dir = Path("ref")
+        cmp_dir = Path("cmp")
+        ref_dir.mkdir()
+        cmp_dir.mkdir()
+
+        result = runner.invoke(
+            cli,
+            [
+                "dirs",
+                str(ref_dir),
+                str(cmp_dir),
+            ],
+        )
+
+    assert result.exit_code == 1

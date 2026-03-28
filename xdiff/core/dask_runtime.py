@@ -50,6 +50,21 @@ def log_file_mode_advisories(request: CompareRequest, comparable_file_pairs: int
         )
 
 
+def log_local_cluster_address(cluster, client) -> None:
+    """Emit the local scheduler address through the default visible log channel."""
+    scheduler_address = getattr(cluster, "scheduler_address", None)
+    if scheduler_address is None:
+        scheduler = getattr(client, "scheduler", None)
+        scheduler_address = getattr(scheduler, "address", None)
+
+    if scheduler_address is not None:
+        logger.warning("Local Dask scheduler available at %s", scheduler_address)
+
+    dashboard_link = getattr(cluster, "dashboard_link", None)
+    if dashboard_link is not None:
+        logger.warning("Local Dask dashboard available at %s", dashboard_link)
+
+
 @contextmanager
 def client_from_request(request: CompareRequest) -> Iterator["Client"]:
     """Attach to an external scheduler or create a local cluster for this request."""
@@ -64,9 +79,10 @@ def client_from_request(request: CompareRequest) -> Iterator["Client"]:
             n_workers=request.dask_workers,
             threads_per_worker=1,
             processes=True,
-            dashboard_address=None,
+            dashboard_address=":8787",
         )
         client = distributed.Client(cluster)
+        log_local_cluster_address(cluster, client)
 
     try:
         yield client
@@ -87,6 +103,6 @@ def _load_distributed():
         return import_module("distributed")
     except ImportError as exc:
         raise RuntimeError(
-            "Dask support requires the optional 'distributed' dependency. "
-            "Install xdiff with the 'dask' extra or add 'distributed' to your environment."
+            "Dask support requires the 'distributed' package. "
+            "Install the project dependencies before using this feature."
         ) from exc

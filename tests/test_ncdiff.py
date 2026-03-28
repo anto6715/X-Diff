@@ -76,6 +76,15 @@ def test_select_last_time_step_keeps_only_last_entry():
     assert result.values.tolist() == [3.0]
 
 
+def test_select_last_time_step_uses_named_time_dimension_when_not_first():
+    field = make_data_array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dims=("depth", "time"))
+
+    result = select_last_time_step(field)
+
+    assert result.shape == (2, 1)
+    assert result.values.tolist() == [[3.0], [6.0]]
+
+
 def test_compute_relative_error_returns_zero_for_identical_arrays():
     diff = np.array([0.0, 0.0])
     field = np.array([2.0, 4.0])
@@ -121,6 +130,22 @@ def test_compare_variables_raises_on_dimension_mismatch():
         compare_variables(reference, comparison, "temp", last_time_step=False)
 
 
+def test_compare_variables_rejects_dimension_name_mismatch_even_when_shape_matches():
+    reference = make_data_array([1.0, 2.0], dims=("x",))
+    comparison = make_data_array([1.0, 2.0], dims=("y",))
+
+    with pytest.raises(ValueError, match="Dimension mismatch"):
+        compare_variables(reference, comparison, "temp", last_time_step=False)
+
+
+def test_compare_variables_rejects_coordinate_value_mismatches():
+    reference = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [0, 1]})
+    comparison = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [1, 2]})
+
+    with pytest.raises(ValueError, match="Coordinate values mismatch"):
+        compare_variables(reference, comparison, "temp", last_time_step=False)
+
+
 def test_compare_variables_raises_on_all_nan_values():
     reference = make_data_array([np.nan, np.nan])
     comparison = make_data_array([np.nan, np.nan])
@@ -139,14 +164,31 @@ def test_compare_variables_detects_mask_mismatch():
 
 
 def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled():
-    reference = make_data_array([1.0, 2.0], dims=("time",))
-    comparison = make_data_array([1.0, 2.0], dims=("time",))
+    reference = make_data_array(
+        ["2024-01-01T00:00:00", "2024-01-02T00:00:00"],
+        dims=("time_counter",),
+        dtype="datetime64[ns]",
+    )
+    comparison = make_data_array(
+        ["2024-01-01T00:00:00", "2024-01-02T00:00:00"],
+        dims=("time_counter",),
+        dtype="datetime64[ns]",
+    )
 
     with pytest.raises(
         LastTimestepTimeCheckException,
         match="Can't compare time if last time step is enabled",
     ):
         compare_variables(reference, comparison, "time_counter", last_time_step=True)
+
+
+def test_compare_variables_allows_non_time_variables_with_time_in_the_name():
+    reference = make_data_array([1.0, 2.0], dims=("x",))
+    comparison = make_data_array([1.0, 2.0], dims=("x",))
+
+    result = compare_variables(reference, comparison, "runtime_bias", last_time_step=True)
+
+    assert result.passed is True
 
 
 def test_compare_datasets_records_variable_level_errors():

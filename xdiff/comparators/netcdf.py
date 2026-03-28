@@ -129,13 +129,12 @@ def compare_variables(
     execution_mode: ExecutionMode = ExecutionMode.SERIAL,
 ) -> CompareResult:
     if last_time_step:
-        if "time" in variable:
+        if is_time_coordinate_variable(variable, ref_da, cmp_da):
             raise LastTimestepTimeCheckException("Can't compare time if last time step is enabled")
         ref_da = select_last_time_step(ref_da)
         cmp_da = select_last_time_step(cmp_da)
 
-    if ref_da.shape != cmp_da.shape:
-        raise ValueError(f"Dimension mismatch: '{ref_da.shape}' - '{cmp_da.shape}'")
+    validate_matching_metadata(ref_da, cmp_da)
 
     if execution_mode is ExecutionMode.ARRAYS:
         return compare_variables_with_chunks(ref_da, cmp_da, variable)
@@ -234,8 +233,11 @@ def extract_scalar(data_array: xr.DataArray):
 
 def select_last_time_step(field: xr.DataArray) -> xr.DataArray:
     time_dimension = find_time_dims_name(field.dims)
-    if time_dimension and field.shape[0] > 1:
-        return field.drop_isel({time_dimension: [index for index in range(field.shape[0] - 1)]})
+    if time_dimension is None:
+        return field
+
+    if field.sizes[time_dimension] > 1:
+        return field.isel({time_dimension: slice(-1, None)})
     return field
 
 
@@ -252,7 +254,7 @@ def compute_relative_error(diff: np.ndarray, field2: np.ndarray):
     if np.all(diff == 0.0):
         return 0.0
 
-    if field2.dtype in settings.TIME_DTYPE:
+    if is_time_dtype(field2.dtype):
         field2_values = field2.view("int64")
     else:
         field2_values = field2
@@ -270,13 +272,71 @@ def compute_relative_error(diff: np.ndarray, field2: np.ndarray):
         logger.debug("An error occurred when computing relative error: %s", exc)
         rel_err = np.nan
 
-    if field2.dtype in settings.TIME_DTYPE:
+    if is_time_dtype(field2.dtype):
         return rel_err / np.timedelta64(1, "s")
     return rel_err
 
 
 def is_time_dtype(dtype) -> bool:
-    return dtype in settings.TIME_DTYPE
+    normalized_dtype = np.dtype(dtype)
+    return np.issubdtype(normalized_dtype, np.datetime64) or np.issubdtype(normalized_dtype, np.timedelta64)
+
+
+def is_time_coordinate_variable(variable: str, ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
+    time_dimension = find_time_dims_name(ref_da.dims)
+    comparison_time_dimension = find_time_dims_name(cmp_da.dims)
+
+    if time_dimension != comparison_time_dimension or time_dimension is None:
+        return False
+
+    return (
+        variable == time_dimension
+        and ref_da.dims == (time_dimension,)
+        and cmp_da.dims == (time_dimension,)
+        and is_time_dtype(ref_da.dtype)
+        and is_time_dtype(cmp_da.dtype)
+    )
+
+
+def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> None:
+    if ref_da.dims != cmp_da.dims:
+        raise ValueError(f"Dimension mismatch: '{ref_da.dims}' - '{cmp_da.dims}'")
+
+    reference_sizes = tuple(ref_da.sizes[dimension] for dimension in ref_da.dims)
+    comparison_sizes = tuple(cmp_da.sizes[dimension] for dimension in cmp_da.dims)
+    if reference_sizes != comparison_sizes:
+        raise ValueError(f"Dimension size mismatch: '{reference_sizes}' - '{comparison_sizes}'")
+
+    if np.dtype(ref_da.dtype) != np.dtype(cmp_da.dtype):
+        raise ValueError(f"Data type mismatch: '{ref_da.dtype}' - '{cmp_da.dtype}'")
+
+    reference_coordinates = set(ref_da.coords)
+    comparison_coordinates = set(cmp_da.coords)
+    if reference_coordinates != comparison_coordinates:
+        raise ValueError(
+            "Coordinate mismatch: "
+            f"'{', '.join(sorted(reference_coordinates)) or '-'}' - "
+            f"'{', '.join(sorted(comparison_coordinates)) or '-'}'"
+        )
+
+    for coordinate_name in sorted(reference_coordinates):
+        reference_coordinate = ref_da.coords[coordinate_name]
+        comparison_coordinate = cmp_da.coords[coordinate_name]
+
+        if reference_coordinate.dims != comparison_coordinate.dims:
+            raise ValueError(
+                f"Coordinate dimension mismatch for '{coordinate_name}': "
+                f"'{reference_coordinate.dims}' - '{comparison_coordinate.dims}'"
+            )
+
+        if np.dtype(reference_coordinate.dtype) != np.dtype(comparison_coordinate.dtype):
+            raise ValueError(
+                f"Coordinate type mismatch for '{coordinate_name}': "
+                f"'{reference_coordinate.dtype}' - '{comparison_coordinate.dtype}'"
+            )
+
+        if not reference_coordinate.equals(comparison_coordinate):
+            raise ValueError(f"Coordinate values mismatch for '{coordinate_name}'")
 
 
 def get_dataset_variables(dataset: xr.Dataset, variables: tuple[str, ...] | list[str] | object | None) -> list[str]:

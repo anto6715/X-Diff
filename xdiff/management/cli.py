@@ -29,7 +29,10 @@ def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
 def _render_report(**kwargs) -> None:
     """Execute a comparison request and print the resulting report."""
     try:
-        formatter.print_report(core.execute(**kwargs))
+        report = core.execute(**kwargs)
+        formatter.print_report(report)
+        if getattr(report, "has_failures", False):
+            raise click.exceptions.Exit(1)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
