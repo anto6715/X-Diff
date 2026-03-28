@@ -4,12 +4,13 @@
 identify differences between datasets stored in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
+[![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=main)](https://codecov.io/gh/anto6715/ncCompare)
 [![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
 [![Pip](https://img.shields.io/badge/pip->19.0.3-brown.svg)](https://pypi.org/project/pip/)
 [![netcdf4](https://img.shields.io/badge/netcdf4-1.7.1.post1-brown.svg)](https://pypi.org/project/pip/)
 [![xarray](https://img.shields.io/badge/xarray-2024.6.0-brown.svg)](https://pypi.org/project/pip/)
 [![rich](https://img.shields.io/badge/rich-13.7.1-brown.svg)](https://github.com/Textualize/rich?tab=readme-ov-file)
-![Tests](https://img.shields.io/badge/coverage-0%25-red)
 
 ![Output](https://github.com/anto6715/ncCompare/raw/master/docs/output.png)
 
@@ -116,6 +117,19 @@ ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`
+
+## Testing
+
+GitHub Actions runs the test suite on every pull request and on pushes to `main`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
+
+To run the same checks locally:
+
+```shell
+poetry install --with dev
+poetry run pytest --cov --cov-report=term-missing --cov-report=xml
+```
+
+The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
 
 ## Author
 
