@@ -4,6 +4,7 @@ from nccompare.core.service import ComparisonService
 from nccompare.matching import DefaultArtifactMatcher
 from nccompare.model import Artifact, ArtifactKind, CompareRequest
 
+
 class StaticDiscovery:
     def __init__(self, artifacts_by_directory):
         self.artifacts_by_directory = artifacts_by_directory

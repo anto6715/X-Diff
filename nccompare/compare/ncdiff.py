@@ -1,19 +1,12 @@
-"""Backward-compatible netCDF comparison API."""
+"""NetCDF comparison orchestration for matched file pairs."""
 
 from pathlib import Path
 from typing import Iterable
 
-from nccompare.comparators.netcdf import (
-    compare_datasets,
-    compare_files,
-    compare_variables,
-    compute_relative_error,
-    find_time_dims_name,
-    get_dataset_variables,
-    select_last_time_step,
-)
+from nccompare.comparators.netcdf import compare_files
 from nccompare.exceptions import NoMatchFound
 from nccompare.model.comparison import Comparison
+
 
 def compare(
     compare_match: dict[Path, list[Path]],

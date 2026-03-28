@@ -6,6 +6,7 @@ from nccompare.model.artifact import Artifact
 from nccompare.model.match import ArtifactMatch
 from nccompare.utils.regex import common_pattern_exists
 
+
 class DefaultArtifactMatcher:
     """Match artifacts by relative path and optional common-pattern fallback."""
 

@@ -9,6 +9,7 @@ from typing import Iterator
 from nccompare.model.artifact import Artifact
 from nccompare.model.compare_result import CompareResult
 
+
 @dataclass(slots=True)
 class Comparison:
     """Comparison outcome for a matched artifact pair."""

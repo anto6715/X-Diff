@@ -6,8 +6,7 @@ import xarray as xr
 
 import nccompare.conf as settings
 
-from nccompare.compare.ncdiff import (
-    compare,
+from nccompare.comparators.netcdf import (
     compare_datasets,
     compare_files,
     compare_variables,
@@ -16,8 +15,10 @@ from nccompare.compare.ncdiff import (
     get_dataset_variables,
     select_last_time_step,
 )
+from nccompare.compare import compare
 from nccompare.exceptions import AllNaN, LastTimestepTimeCheckException
 from nccompare.model import CompareResult
+
 
 def make_data_array(values, dims=("x",), dtype=None):
     array = np.array(values, dtype=dtype) if dtype is not None else np.array(values)

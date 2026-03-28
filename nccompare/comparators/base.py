@@ -9,6 +9,7 @@ from nccompare.model.comparison import Comparison
 from nccompare.model.match import ArtifactMatch
 from nccompare.model.request import CompareRequest
 
+
 class ArtifactComparator(ABC):
     """Compares a matched pair of artifacts."""
 

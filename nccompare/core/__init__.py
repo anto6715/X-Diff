@@ -4,6 +4,7 @@ import nccompare
 
 from nccompare.core import main as main_module
 
+
 def execute(**kwargs):
     nccompare.setup()
     get_version = kwargs.pop("get_version", False)

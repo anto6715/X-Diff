@@ -13,6 +13,7 @@ from nccompare.model.match import ArtifactMatch
 from nccompare.model.report import ComparisonReport
 from nccompare.model.request import CompareRequest
 
+
 class ComparisonService:
     """Coordinate discovery, matching, and comparison for one request."""
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from nccompare.model.artifact import Artifact
 
+
 class FileSystemArtifactDiscovery:
     """Discover artifacts from a directory using a glob filter."""
 

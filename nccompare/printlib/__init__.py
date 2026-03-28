@@ -1,1 +1,1 @@
-from nccompare.printlib import formatter
+from nccompare.printlib import formatter as formatter

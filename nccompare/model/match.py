@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from nccompare.model.artifact import Artifact
 
+
 @dataclass(frozen=True, slots=True)
 class ArtifactMatch:
     """A candidate pair of artifacts to compare."""
