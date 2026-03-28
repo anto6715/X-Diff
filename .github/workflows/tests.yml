@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   test:
@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -26,6 +28,14 @@ jobs:
 
       - name: Install dependencies
         run: poetry install --with dev
+
+      - name: Fetch PR base branch for towncrier check
+        if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
+        run: git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+
+      - name: Validate changelog fragment
+        if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
+        run: poetry run towncrier check --compare-with origin/${{ github.base_ref }}
 
       - name: Run tests with coverage
         run: poetry run pytest --cov --cov-report=term-missing --cov-report=xml

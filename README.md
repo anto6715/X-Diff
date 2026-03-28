@@ -4,8 +4,8 @@
 identify differences between datasets stored in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
-[![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
-[![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=main)](https://codecov.io/gh/anto6715/ncCompare)
+[![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/ncCompare)
 [![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
 [![Pip](https://img.shields.io/badge/pip->19.0.3-brown.svg)](https://pypi.org/project/pip/)
 [![netcdf4](https://img.shields.io/badge/netcdf4-1.7.1.post1-brown.svg)](https://pypi.org/project/pip/)
@@ -120,7 +120,7 @@ Notice the regex syntax `.+` to match any pattern before `_19820101`
 
 ## Testing
 
-GitHub Actions runs the test suite on every pull request and on pushes to `main`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
+GitHub Actions runs the test suite on every pull request and on pushes to `master`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
 
 To run the same checks locally:
 
@@ -130,6 +130,36 @@ poetry run pytest --cov --cov-report=term-missing --cov-report=xml
 ```
 
 The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
+
+## Changelog
+
+This repository uses `towncrier` for release notes. Every pull request must include a fragment under `newsfragments/` for user-facing changes, for example:
+
+```text
+newsfragments/+cli-filter.bugfix.md
+newsfragments/+tests.doc.md
+```
+
+Validate fragments locally with:
+
+```shell
+poetry run towncrier build --draft --version 0.2.6
+```
+
+To mirror the CI-style branch check after committing or staging your fragment:
+
+```shell
+git fetch origin master:refs/remotes/origin/master
+poetry run towncrier check --compare-with origin/master --staged
+```
+
+Release notes are generated from `release/X.Y.Z` branches. Open a PR from `release/X.Y.Z` to `master`, and CI will:
+
+1. set `pyproject.toml` to version `X.Y.Z`
+2. run `towncrier build --yes --version X.Y.Z`
+3. commit the updated `CHANGELOG.md` and consumed fragments back to the release branch
+
+After the release PR is merged, merge `master` back into `develop` so the generated changelog and fragment deletions return to the integration branch.
 
 ## Author
 
