@@ -143,23 +143,21 @@ changes.d/+internal-cleanup.misc.md
 
 Use the pull request number as the filename prefix when you want Towncrier to render a linked PR reference. With the current configuration, `changes.d/123.bugfix.md` will render as `[#123]` in `CHANGES.md`. Use `+` instead of a number when there is no associated PR to link.
 
-Example changelog entry linked to PR `#123`:
+Create a changelog entry with the Towncrier CLI:
 
 ```shell
-cat > changes.d/123.bugfix.md <<'EOF'
-Improved CLI filtering so directory comparisons skip unrelated files more reliably.
-EOF
+poetry run towncrier create 123.bugfix.md --content "Improved CLI filtering so directory comparisons skip unrelated files more reliably."
 ```
 
-Example changelog entry without an associated PR:
+Create an orphan entry when there is no associated PR:
 
 ```shell
-cat > changes.d/+internal-cleanup.misc.md <<'EOF'
-Cleaned up internal comparison helpers and simplified related tests.
-EOF
+poetry run towncrier create +internal-cleanup.misc.md --content "Cleaned up internal comparison helpers and simplified related tests."
 ```
 
-Validate changelog entries locally with:
+If you omit `--content`, `towncrier create` will open your editor so you can write the entry interactively.
+
+Validate or preview changelog entries locally with:
 
 ```shell
 poetry run towncrier build --draft --version 0.2.6
@@ -177,6 +175,8 @@ Release notes are generated from `release/X.Y.Z` branches. Open a PR from `relea
 1. set `pyproject.toml` to version `X.Y.Z`
 2. run `towncrier build --yes --version X.Y.Z`
 3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
+
+In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](/work/antonio/dev/ncCompare/.github/workflows/release-changelog.yml).
 
 After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
 
