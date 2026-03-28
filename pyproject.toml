@@ -63,4 +63,4 @@ build-backend = "poetry.core.masonry.api"
 
 
 [tool.poetry.scripts]
-ncpare = "nccompare.management:start_from_command_line_interface"
+xdiff = "nccompare.management:start_from_command_line_interface"

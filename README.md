@@ -1,7 +1,8 @@
-# netCDF Diff Comparison tool - ncpare
+# X-Diff
 
-`ncpare` is a tool for comparing netCDF files, providing a detailed diff of their contents. It is designed to help users
-identify differences between datasets stored in netCDF format.
+`xdiff` is the CLI for **X-Diff**, a general diff tool name where `X` can stand for different comparison targets.
+Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
+in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
 [![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
@@ -42,7 +43,7 @@ uv pip install --python .venv/bin/python -e .
 Run the CLI from the active environment:
 
 ```shell
-ncpare --help
+xdiff --help
 ```
 
 ### Install globally with uv tool
@@ -51,7 +52,7 @@ ncpare --help
 uv tool install nccompare
 ```
 
-`uv tool install` installs `ncpare` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
+`uv tool install` installs `xdiff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
 
 ## Usage
 
@@ -62,7 +63,7 @@ source .venv/bin/activate
 ```
 
 ```shell
-ncpare [OPTIONS] COMMAND [ARGS]...
+xdiff [OPTIONS] COMMAND [ARGS]...
 
   netCDF comparison tool.
 
@@ -81,7 +82,7 @@ Commands:
 It is possible to choose which parameter to compare:
 
 ```shell
-ncpare dirs folder1 folder2 -v votemper -v vosaline
+xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
@@ -89,11 +90,11 @@ ncpare dirs folder1 folder2 -v votemper -v vosaline
 
 ### Filter files
 
-As default **ncpare** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
+As default **xdiff** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
 it is possible to select only a subset of input files. For example:
 
 ```shell
-ncpare dirs folder1 folder2 -f "*_grid_T.nc"
+xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
@@ -101,7 +102,7 @@ ncpare dirs folder1 folder2 -f "*_grid_T.nc"
 It is possible to compare two files with different filenames directly:
 
 ```shell
-ncpare files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
 ```
 
 For directory comparisons, it is still possible to match files with different names if they share a common pattern.
@@ -112,7 +113,7 @@ For example, if we have:
 
 It is still possible to compare the file with:
 ```shell
-ncpare dirs folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
+xdiff dirs folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`

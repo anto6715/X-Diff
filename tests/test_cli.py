@@ -1,4 +1,5 @@
 import importlib
+
 from pathlib import Path
 
 from click.testing import CliRunner

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+
 from pathlib import Path
 
 import click
@@ -11,7 +12,6 @@ from nccompare import core
 from nccompare.conf import settings
 from nccompare.model import CompareMode
 from nccompare.printlib import formatter
-
 
 def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
     """Ensure the explicit files command only accepts netCDF inputs for now."""
@@ -35,7 +35,7 @@ def _render_report(**kwargs) -> None:
 )
 @click.version_option(
     version=importlib.metadata.version("nccompare"),
-    prog_name="ncpare",
+    prog_name="xdiff",
 )
 @click.pass_context
 def cli(ctx: click.Context) -> None:
