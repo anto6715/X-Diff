@@ -15,13 +15,50 @@ identify differences between datasets stored in netCDF format.
 
 ## Installation
 
-### Via PIP
+### Install uv
+
+Follow the official installer:
 
 ```shell
-pip install nccompare
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+### Install in a local virtual environment (recommended for development)
+
+Create and activate a project-local environment:
+
+```shell
+uv venv
+source .venv/bin/activate
+```
+
+Then install `nccompare` inside the active environment:
+
+```shell
+uv pip install --python .venv/bin/python -e .
+```
+
+Run the CLI from the active environment:
+
+```shell
+ncpare --help
+```
+
+### Install globally with uv tool
+
+```shell
+uv tool install nccompare
+```
+
+`uv tool install` installs `ncpare` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
+
 ## Usage
+
+If you installed in `.venv`, activate it first:
+
+```shell
+source .venv/bin/activate
+```
 
 ```shell
 ncpare [-h] [-f--filter FILTER_NAME] [--common_pattern COMMON_PATTERN] [--variables VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
