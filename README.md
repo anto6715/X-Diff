@@ -61,7 +61,7 @@ source .venv/bin/activate
 ```
 
 ```shell
-ncpare [-h] [-f--filter FILTER_NAME] [--common_pattern COMMON_PATTERN] [--variables VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
+ncpare [-h] [-f FILTER_NAME] [--common-pattern COMMON_PATTERN] [-v VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
 
 netCDF Comparison Tool
 
@@ -71,9 +71,9 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -f--filter FILTER_NAME
+  -f, --filter FILTER_NAME
                         Filter to select files to compare. Examples: *.nc, *_grid_*
-  --common_pattern COMMON_PATTERN
+  --common-pattern COMMON_PATTERN
                         Common file pattern in two files to compareEs mfsX_date.nc and expX_date.nc -> date.nc is the common part
   -v, --variables VARIABLES [VARIABLES ...]
                         Variable to compare
@@ -112,7 +112,7 @@ For example, if we have:
 
 It is still possible to compare the file with:
 ```shell
-ncpare folder1 folder2 --commom-pattern ".+_19820101_grid_T.nc"
+ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`

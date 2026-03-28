@@ -99,11 +99,12 @@ def compare_variables(
     # try computing difference
     difference_field = ref_array - cmp_array
 
+    if np.isnan(difference_field).all():
+        raise AllNaN("All nan values found")
+
     # get statistics
     max_difference = np.nanmax(difference_field)
     min_difference = np.nanmin(difference_field)
-    if np.isnan(max_difference) and np.isnan(min_difference):
-        raise AllNaN("All nan values found")
 
     mask_is_equal = np.array_equal(ref_masked.mask, cmp_masked.mask)
     rel_err = compute_relative_error(difference_field, cmp_array)

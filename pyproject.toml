@@ -12,6 +12,14 @@ pandas = "^2.2.2"
 netcdf4 = "^1.7.1"
 rich = "^13.7.1"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:numpy.ndarray size changed, may indicate binary incompatibility.*:RuntimeWarning",
+]
+
 
 [build-system]
 requires = ["poetry-core"]
