@@ -136,8 +136,27 @@ The Codecov badge will start showing a real percentage after the workflow runs s
 This repository uses `towncrier` for release notes. Every pull request must include a changelog entry under `changes.d/` for user-facing changes, for example:
 
 ```text
-changes.d/+cli-filter.bugfix.md
-changes.d/+tests.doc.md
+changes.d/123.bugfix.md
+changes.d/124.doc.md
+changes.d/+internal-cleanup.misc.md
+```
+
+Use the pull request number as the filename prefix when you want Towncrier to render a linked PR reference. With the current configuration, `changes.d/123.bugfix.md` will render as `[#123]` in `CHANGES.md`. Use `+` instead of a number when there is no associated PR to link.
+
+Example changelog entry linked to PR `#123`:
+
+```shell
+cat > changes.d/123.bugfix.md <<'EOF'
+Improved CLI filtering so directory comparisons skip unrelated files more reliably.
+EOF
+```
+
+Example changelog entry without an associated PR:
+
+```shell
+cat > changes.d/+internal-cleanup.misc.md <<'EOF'
+Cleaned up internal comparison helpers and simplified related tests.
+EOF
 ```
 
 Validate changelog entries locally with:
