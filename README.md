@@ -4,12 +4,13 @@
 identify differences between datasets stored in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
+[![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=main)](https://codecov.io/gh/anto6715/ncCompare)
 [![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
 [![Pip](https://img.shields.io/badge/pip->19.0.3-brown.svg)](https://pypi.org/project/pip/)
 [![netcdf4](https://img.shields.io/badge/netcdf4-1.7.1.post1-brown.svg)](https://pypi.org/project/pip/)
 [![xarray](https://img.shields.io/badge/xarray-2024.6.0-brown.svg)](https://pypi.org/project/pip/)
 [![rich](https://img.shields.io/badge/rich-13.7.1-brown.svg)](https://github.com/Textualize/rich?tab=readme-ov-file)
-![Tests](https://img.shields.io/badge/coverage-0%25-red)
 
 ![Output](https://github.com/anto6715/ncCompare/raw/master/docs/output.png)
 
@@ -61,7 +62,7 @@ source .venv/bin/activate
 ```
 
 ```shell
-ncpare [-h] [-f--filter FILTER_NAME] [--common_pattern COMMON_PATTERN] [--variables VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
+ncpare [-h] [-f FILTER_NAME] [--common-pattern COMMON_PATTERN] [-v VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
 
 netCDF Comparison Tool
 
@@ -71,9 +72,9 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -f--filter FILTER_NAME
+  -f, --filter FILTER_NAME
                         Filter to select files to compare. Examples: *.nc, *_grid_*
-  --common_pattern COMMON_PATTERN
+  --common-pattern COMMON_PATTERN
                         Common file pattern in two files to compareEs mfsX_date.nc and expX_date.nc -> date.nc is the common part
   -v, --variables VARIABLES [VARIABLES ...]
                         Variable to compare
@@ -112,10 +113,23 @@ For example, if we have:
 
 It is still possible to compare the file with:
 ```shell
-ncpare folder1 folder2 --commom-pattern ".+_19820101_grid_T.nc"
+ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
 ```
 
 Notice the regex syntax `.+` to match any pattern before `_19820101`
+
+## Testing
+
+GitHub Actions runs the test suite on every pull request and on pushes to `main`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
+
+To run the same checks locally:
+
+```shell
+poetry install --with dev
+poetry run pytest --cov --cov-report=term-missing --cov-report=xml
+```
+
+The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
 
 ## Author
 

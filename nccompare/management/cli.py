@@ -1,6 +1,5 @@
 import argparse
 import importlib.metadata
-import sys
 import time
 from pathlib import Path
 
@@ -14,7 +13,8 @@ def get_args(raw_args=None):
     parse.add_argument("folder1", type=Path, help="Path of first folder to compare")
     parse.add_argument("folder2", type=Path, help="Path of second folder to compare")
     parse.add_argument(
-        "-f" "--filter",
+        "-f",
+        "--filter",
         dest="filter_name",
         type=str,
         default=settings.DEFAULT_NAME_TO_COMPARE,
@@ -44,14 +44,10 @@ def get_args(raw_args=None):
     parse.add_argument(
         "-V",
         "--version",
-        dest="get_version",
-        default=False,
-        action="store_true",
+        action="version",
+        version=importlib.metadata.version("nccompare"),
         help="Print version and exit",
     )
-    if "-V" in sys.argv or "--version" in sys.argv:
-        print(importlib.metadata.version("nccompare"))
-        sys.exit(0)
     return parse.parse_args(raw_args)
 
 
