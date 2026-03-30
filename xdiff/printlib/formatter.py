@@ -33,21 +33,21 @@ def print_report(report: ComparisonReport) -> None:
     failed_comparisons = [comparison for comparison in comparisons if not comparison.passed]
     passed_comparisons = [comparison for comparison in comparisons if comparison.passed]
 
-    console.print(render_summary(report))
-    if failed_comparisons:
-        console.print(render_failed_comparisons_table(failed_comparisons))
+    if passed_comparisons:
+        heading = "[bold green]Passed Comparison Details[/bold green]"
+        console.print(heading)
+        for comparison in passed_comparisons:
+            print_comparison(comparison, console=console)
 
     if failed_comparisons:
         console.print("[bold red]Failed Comparison Details[/bold red]")
         for comparison in failed_comparisons:
             print_comparison(comparison, console=console)
 
-    if passed_comparisons:
-        heading = "[bold green]Passed Comparison Details[/bold green]"
-        if failed_comparisons:
-            console.print(heading)
-        for comparison in passed_comparisons:
-            print_comparison(comparison, console=console)
+    if failed_comparisons:
+        console.print(render_failed_comparisons_table(failed_comparisons))
+
+    console.print(render_summary(report))
 
 
 def print_comparison(comparison: Comparison, console: Console | None = None) -> None:

@@ -43,12 +43,12 @@ def test_print_report_renders_summary_failed_table_and_details(monkeypatch):
     formatter.print_report(report)
 
     assert printed == [
-        "SUMMARY",
-        "FAILED TABLE",
-        "[bold red]Failed Comparison Details[/bold red]",
         "[bold green]Passed Comparison Details[/bold green]",
+        "[bold red]Failed Comparison Details[/bold red]",
+        "FAILED TABLE",
+        "SUMMARY",
     ]
-    assert rendered == [failing, passing]
+    assert rendered == [passing, failing]
 
 
 def test_print_comparison_renders_exception_row_in_description_column(monkeypatch):
