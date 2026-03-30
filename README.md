@@ -4,7 +4,7 @@
 Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
 in netCDF format.
 
-![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 [![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/ncCompare)
 [![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
@@ -27,10 +27,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-Create and activate a project-local environment:
+`xdiff` currently supports Python 3.10 through 3.13. Create and activate a
+project-local environment with a supported interpreter:
 
 ```shell
-uv venv
+uv venv --python 3.13
 source .venv/bin/activate
 ```
 
@@ -49,7 +50,7 @@ xdiff --help
 ### Install globally with uv tool
 
 ```shell
-uv tool install xdiff
+uv tool install --python 3.13 xdiff
 ```
 
 `uv tool install` installs `xdiff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
