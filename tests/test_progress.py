@@ -42,11 +42,20 @@ def test_text_progress_reporter_emits_checkpoints_and_summary():
         reference_artifact=Artifact.from_path(Path("a.nc")),
         comparison_artifact=Artifact.from_path(Path("b.nc")),
     )
-    comparison.append(CompareResult(variable="temp"))
+    comparison.append(
+        CompareResult(
+            relative_error=0.0,
+            min_diff=0.0,
+            max_diff=0.0,
+            mask_equal=True,
+            variable="temp",
+        )
+    )
     failing = Comparison(
         reference_artifact=Artifact.from_path(Path("c.nc")),
         comparison_artifact=Artifact.from_path(Path("d.nc")),
     )
+    failing.append(CompareResult(variable="salt", description="mask mismatch"))
 
     reporter.on_discovery_complete(2, 2)
     reporter.on_matching_complete(2)
@@ -60,6 +69,8 @@ def test_text_progress_reporter_emits_checkpoints_and_summary():
     assert "Reference files discovered: 2" in output
     assert "Comparison files discovered: 2" in output
     assert "Comparison tasks scheduled: 2" in output
+    assert "PASSED a.nc vs b.nc (1 check passed)" in output
+    assert "FAILED c.nc vs d.nc (1/1 failed: salt (mask mismatch))" in output
     assert "Progress: 1/2 comparison tasks completed (50%, 1 left)" in output
     assert "Progress: 2/2 comparison tasks completed (100%, 0 left)" in output
     assert "Completed 2/2 comparison tasks" in output
@@ -76,6 +87,7 @@ def test_rich_progress_reporter_updates_progress_and_prints_summary(monkeypatch)
         def __init__(self, *args, **kwargs):
             captured["progress_kwargs"] = kwargs
             captured["updates"] = []
+            self.console = kwargs["console"]
 
         def start(self):
             captured["started"] = True
@@ -97,7 +109,15 @@ def test_rich_progress_reporter_updates_progress_and_prints_summary(monkeypatch)
         reference_artifact=Artifact.from_path(Path("a.nc")),
         comparison_artifact=Artifact.from_path(Path("b.nc")),
     )
-    comparison.append(CompareResult(variable="temp"))
+    comparison.append(
+        CompareResult(
+            relative_error=0.0,
+            min_diff=0.0,
+            max_diff=0.0,
+            mask_equal=True,
+            variable="temp",
+        )
+    )
 
     reporter.on_matching_complete(3)
     reporter.on_comparisons_started(3)
@@ -112,4 +132,7 @@ def test_rich_progress_reporter_updates_progress_and_prints_summary(monkeypatch)
     assert captured["started"] is True
     assert captured["stopped"] is True
     assert "Comparison tasks scheduled" in captured["prints"][0]
-    assert "Completed 1/3 comparison tasks" in captured["prints"][1]
+    assert "PASSED" in captured["prints"][1]
+    assert "a.nc vs b.nc" in captured["prints"][1]
+    assert "1 check passed" in captured["prints"][1]
+    assert "Completed 1/3 comparison tasks" in captured["prints"][2]

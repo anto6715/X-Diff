@@ -115,7 +115,7 @@ class RichProgressReporter(ProgressReporter):
         completed: int,
         total_matches: int,
     ) -> None:
-        del comparison
+        self._print_live_result(comparison)
         if self._progress is None or self._task_id is None:
             return
 
@@ -134,6 +134,13 @@ class RichProgressReporter(ProgressReporter):
 
     def close(self) -> None:
         self._stop_progress()
+
+    def _print_live_result(self, comparison: Comparison) -> None:
+        message = format_live_result(comparison)
+        if self._progress is not None:
+            self._progress.console.print(message)
+            return
+        self.console.print(message)
 
     def _stop_progress(self) -> None:
         if self._progress is None:
@@ -181,7 +188,7 @@ class TextProgressReporter(ProgressReporter):
         completed: int,
         total_matches: int,
     ) -> None:
-        del comparison
+        self._write(format_live_result(comparison, rich_markup=False))
         if completed not in self._checkpoints or completed == self._last_reported:
             return
 
@@ -254,3 +261,75 @@ def _format_summary(
     if not rich_markup:
         return summary
     return f"[bold]{summary}[/bold]"
+
+
+def format_live_result(comparison: Comparison, *, rich_markup: bool = True) -> str:
+    """Format a short per-comparison result line for live progress output."""
+    target = f"{comparison.reference_file} vs {comparison.comparison_file or '-'}"
+    if comparison.passed:
+        detail = f"{pluralize(comparison_total_check_count(comparison), 'check')} passed"
+        return _format_status_line("PASSED", target, detail, rich_markup=rich_markup, style="green")
+
+    return _format_status_line(
+        "FAILED",
+        target,
+        comparison_failure_detail(comparison),
+        rich_markup=rich_markup,
+        style="red",
+    )
+
+
+def comparison_total_check_count(comparison: Comparison) -> int:
+    """Count the checks represented by one comparison."""
+    if comparison.exception is not None or len(comparison) == 0:
+        return 1
+    return len(comparison)
+
+
+def comparison_failed_check_count(comparison: Comparison) -> int:
+    """Count failed checks for one comparison."""
+    if comparison.exception is not None or len(comparison) == 0:
+        return 1
+    return sum(not result.passed for result in comparison)
+
+
+def comparison_failure_detail(comparison: Comparison) -> str:
+    """Summarize why one comparison failed."""
+    if comparison.exception is not None:
+        return str(comparison.exception)
+    if len(comparison) == 0:
+        return "No comparable variables were selected"
+
+    failed_results = [result_summary(result) for result in comparison if not result.passed]
+    failed_count = comparison_failed_check_count(comparison)
+    total_count = comparison_total_check_count(comparison)
+    detail = ", ".join(failed_results[:3])
+    if len(failed_results) > 3:
+        detail = f"{detail} (+{len(failed_results) - 3} more)"
+    return f"{failed_count}/{total_count} failed: {detail}"
+
+
+def result_summary(result) -> str:
+    """Return a compact label for a failed variable result."""
+    if result.description not in {"", "-"}:
+        return f"{result.variable} ({result.description})"
+    return str(result.variable)
+
+
+def pluralize(count: int, noun: str) -> str:
+    """Return a compact pluralized count string."""
+    suffix = "" if count == 1 else "s"
+    return f"{count} {noun}{suffix}"
+
+
+def _format_status_line(
+    status: str,
+    target: str,
+    detail: str,
+    *,
+    rich_markup: bool,
+    style: str,
+) -> str:
+    if not rich_markup:
+        return f"{status} {target} ({detail})"
+    return f"[{style}]{status}[/{style}] {target} [dim]({detail})[/dim]"
