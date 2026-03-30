@@ -12,7 +12,7 @@ from xdiff import core
 from xdiff.conf import settings
 from xdiff.model import CompareMode, ExecutionMode
 from xdiff.model.request import validate_execution_options
-from xdiff.printlib import formatter
+from xdiff.printlib import formatter, progress
 
 
 def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
@@ -26,10 +26,12 @@ def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
     return value
 
 
-def _render_report(**kwargs) -> None:
+def _render_report(*, progress_enabled: bool, **kwargs) -> None:
     """Execute a comparison request and print the resulting report."""
     try:
-        report = core.execute(**kwargs)
+        progress_reporter = progress.create_progress_reporter(disabled=not progress_enabled)
+        with progress_reporter:
+            report = core.execute(progress_reporter=progress_reporter, **kwargs)
         formatter.print_report(report)
         if getattr(report, "has_failures", False):
             raise click.exceptions.Exit(1)
@@ -59,6 +61,12 @@ def _validate_runtime_options(
 
 
 def _execution_options(command):
+    command = click.option(
+        "--no-progress",
+        is_flag=True,
+        default=False,
+        help="Disable live progress reporting during comparison.",
+    )(command)
     command = click.option(
         "--dask-workers",
         type=click.IntRange(min=1),
@@ -152,10 +160,12 @@ def compare_directories(
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
+    no_progress: bool,
 ) -> None:
     """Compare two directories of netCDF files."""
     _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
+        progress_enabled=not no_progress,
         reference_path=reference_path,
         comparison_path=comparison_path,
         input_mode=CompareMode.DIRECTORIES,
@@ -203,10 +213,12 @@ def compare_files(
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
+    no_progress: bool,
 ) -> None:
     """Compare two netCDF files directly, even if their filenames differ."""
     _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
+        progress_enabled=not no_progress,
         reference_path=reference_path,
         comparison_path=comparison_path,
         input_mode=CompareMode.FILES,

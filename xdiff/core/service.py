@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Mapping
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping
 
 from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.exceptions import NoMatchFound, UnsupportedArtifactTypeError
@@ -17,6 +17,7 @@ from . import dask_runtime
 
 if TYPE_CHECKING:
     from xdiff.comparators.base import ArtifactComparator
+    from xdiff.printlib.progress import ProgressReporter
 
 
 def load_default_comparators() -> list["ArtifactComparator"]:
@@ -82,8 +83,18 @@ class ComparisonService:
             comparators=load_default_comparators(),
         )
 
-    def run(self, request: CompareRequest) -> ComparisonReport:
+    def run(
+        self,
+        request: CompareRequest,
+        progress_reporter: "ProgressReporter | None" = None,
+    ) -> ComparisonReport:
+        from xdiff.printlib.progress import NullProgressReporter
+
+        reporter = progress_reporter or NullProgressReporter()
+        reporter.start(request)
+
         if request.input_mode is CompareMode.FILES:
+            reporter.on_discovery_complete(reference_count=1, comparison_count=1)
             matches = [self._build_explicit_file_match(request)]
         else:
             reference_artifacts = self.discovery.discover(
@@ -94,16 +105,36 @@ class ComparisonService:
                 request.comparison_path,
                 request.filter_name,
             )
+            reporter.on_discovery_complete(
+                reference_count=len(reference_artifacts),
+                comparison_count=len(comparison_artifacts),
+            )
             matches = self.matcher.match(
                 reference_artifacts,
                 comparison_artifacts,
                 request.common_pattern,
             )
 
-        report = ComparisonReport(request=request)
-        for comparison in self._compare_matches(matches, request):
-            report.append(comparison)
+        total_matches = len(matches)
+        reporter.on_matching_complete(total_matches)
+        reporter.on_comparisons_started(total_matches)
 
+        completed = 0
+
+        def on_comparison_complete(comparison: Comparison) -> None:
+            nonlocal completed
+            completed += 1
+            reporter.on_comparison_complete(comparison, completed, total_matches)
+
+        report = ComparisonReport(
+            request=request,
+            comparisons=self._compare_matches(
+                matches,
+                request,
+                on_comparison_complete=on_comparison_complete,
+            ),
+        )
+        reporter.finish(report)
         return report
 
     @staticmethod
@@ -114,36 +145,82 @@ class ComparisonService:
             comparison=Artifact.from_path(request.comparison_path),
         )
 
-    def _compare_matches(self, matches: list[ArtifactMatch], request: CompareRequest) -> list[Comparison]:
+    def _compare_matches(
+        self,
+        matches: list[ArtifactMatch],
+        request: CompareRequest,
+        on_comparison_complete: Callable[[Comparison], None] | None = None,
+    ) -> list[Comparison]:
         if request.execution_mode is ExecutionMode.FILES:
-            return self._compare_matches_with_dask(matches, request)
+            return self._compare_matches_with_dask(matches, request, on_comparison_complete=on_comparison_complete)
         if request.execution_mode is ExecutionMode.ARRAYS:
-            return self._compare_matches_with_chunked_arrays(matches, request)
-        return [self._compare_match(match, request) for match in matches]
+            return self._compare_matches_with_chunked_arrays(
+                matches,
+                request,
+                on_comparison_complete=on_comparison_complete,
+            )
 
-    def _compare_matches_with_dask(self, matches: list[ArtifactMatch], request: CompareRequest) -> list[Comparison]:
+        comparisons: list[Comparison] = []
+        for match in matches:
+            comparisons.append(
+                self._complete_match(
+                    match,
+                    request,
+                    on_comparison_complete=on_comparison_complete,
+                )
+            )
+        return comparisons
+
+    def _compare_matches_with_dask(
+        self,
+        matches: list[ArtifactMatch],
+        request: CompareRequest,
+        on_comparison_complete: Callable[[Comparison], None] | None = None,
+    ) -> list[Comparison]:
         comparisons: list[Comparison | None] = [None] * len(matches)
-        parallel_indices: list[int] = []
-        parallel_matches: list[ArtifactMatch] = []
+        parallelizable: list[tuple[int, ArtifactMatch]] = []
+        non_parallelizable: list[tuple[int, ArtifactMatch]] = []
 
         for index, match in enumerate(matches):
             if self._can_parallelize_match(match):
-                parallel_indices.append(index)
-                parallel_matches.append(match)
+                parallelizable.append((index, match))
             else:
-                comparisons[index] = self._compare_match(match, request)
+                non_parallelizable.append((index, match))
 
-        if len(parallel_matches) == 0:
+        if len(parallelizable) == 0:
+            for index, match in non_parallelizable:
+                comparisons[index] = self._complete_match(
+                    match,
+                    request,
+                    on_comparison_complete=on_comparison_complete,
+                )
             return [comparison for comparison in comparisons if comparison is not None]
 
-        dask_runtime.log_file_mode_advisories(request, len(parallel_matches))
+        dask_runtime.log_file_mode_advisories(request, len(parallelizable))
+        for index, match in non_parallelizable:
+            comparisons[index] = self._complete_match(
+                match,
+                request,
+                on_comparison_complete=on_comparison_complete,
+            )
+
         with dask_runtime.client_from_request(request) as client:
-            futures = [
-                client.submit(compare_match, match, request, self.comparators, pure=False)
-                for match in parallel_matches
+            indexed_futures = [
+                (
+                    index,
+                    client.submit(compare_match, match, request, self.comparators, pure=False),
+                )
+                for index, match in parallelizable
             ]
-            for index, comparison in zip(parallel_indices, client.gather(futures)):
+            future_ids_to_index = {id(future): index for index, future in indexed_futures}
+
+            for future, comparison in dask_runtime.iterate_results_as_completed(
+                [future for _, future in indexed_futures]
+            ):
+                index = future_ids_to_index[id(future)]
                 comparisons[index] = comparison
+                if on_comparison_complete is not None:
+                    on_comparison_complete(comparison)
 
         return [comparison for comparison in comparisons if comparison is not None]
 
@@ -151,13 +228,28 @@ class ComparisonService:
         self,
         matches: list[ArtifactMatch],
         request: CompareRequest,
+        on_comparison_complete: Callable[[Comparison], None] | None = None,
     ) -> list[Comparison]:
         if not any(self._can_parallelize_match(match) for match in matches):
-            return [self._compare_match(match, request) for match in matches]
+            return [
+                self._complete_match(
+                    match,
+                    request,
+                    on_comparison_complete=on_comparison_complete,
+                )
+                for match in matches
+            ]
 
         dask_runtime.log_local_worker_advisories(request)
         with dask_runtime.client_from_request(request):
-            return [self._compare_match(match, request) for match in matches]
+            return [
+                self._complete_match(
+                    match,
+                    request,
+                    on_comparison_complete=on_comparison_complete,
+                )
+                for match in matches
+            ]
 
     def _can_parallelize_match(self, match: ArtifactMatch) -> bool:
         return (
@@ -168,3 +260,14 @@ class ComparisonService:
 
     def _compare_match(self, match: ArtifactMatch, request: CompareRequest) -> Comparison:
         return compare_match(match, request, self.comparators)
+
+    def _complete_match(
+        self,
+        match: ArtifactMatch,
+        request: CompareRequest,
+        on_comparison_complete: Callable[[Comparison], None] | None = None,
+    ) -> Comparison:
+        comparison = self._compare_match(match, request)
+        if on_comparison_complete is not None:
+            on_comparison_complete(comparison)
+        return comparison

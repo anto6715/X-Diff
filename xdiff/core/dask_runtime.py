@@ -92,6 +92,12 @@ def client_from_request(request: CompareRequest) -> Iterator["Client"]:
             cluster.close()
 
 
+def iterate_results_as_completed(futures):
+    """Yield futures and results in completion order."""
+    distributed = _load_distributed()
+    yield from distributed.as_completed(futures, with_results=True)
+
+
 def _connect_to_scheduler(request: CompareRequest, client_type):
     if request.dask_scheduler_file is not None:
         return client_type(scheduler_file=str(request.dask_scheduler_file))
