@@ -1,13 +1,16 @@
 """Compatibility layer for the application service entrypoint."""
 
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import xdiff.conf as settings
 
 from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.model import CompareMode, CompareRequest, ComparisonReport, ExecutionMode
+
+if TYPE_CHECKING:
+    from xdiff.printlib.progress import ProgressReporter
 
 
 def execute(
@@ -22,6 +25,7 @@ def execute(
     dask_scheduler: str | None = None,
     dask_scheduler_file: Path | None = None,
     dask_workers: int | None = None,
+    progress_reporter: "ProgressReporter | None" = None,
 ) -> ComparisonReport:
     request = build_request(
         reference_path=reference_path,
@@ -36,7 +40,7 @@ def execute(
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
     )
-    return ComparisonService.default().run(request)
+    return ComparisonService.default().run(request, progress_reporter=progress_reporter)
 
 
 def build_request(

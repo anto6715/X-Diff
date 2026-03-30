@@ -263,3 +263,79 @@ def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):
         )
 
     assert result.exit_code == 1
+
+
+def test_dirs_command_builds_progress_reporter(monkeypatch):
+    runner = CliRunner()
+    report = object()
+    captured = {}
+
+    class FakeReporter:
+        def __enter__(self):
+            captured["entered"] = True
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            captured["exited"] = True
+            return False
+
+    fake_reporter = FakeReporter()
+
+    def fake_create_progress_reporter(*, disabled=False):
+        captured["disabled"] = disabled
+        return fake_reporter
+
+    def fake_execute(**kwargs):
+        captured["kwargs"] = kwargs
+        return report
+
+    monkeypatch.setattr(cli_module.progress, "create_progress_reporter", fake_create_progress_reporter)
+    monkeypatch.setattr(cli_module.formatter, "print_report", lambda value: captured.setdefault("rendered", value))
+    monkeypatch.setattr(cli_module.core, "execute", fake_execute)
+
+    with runner.isolated_filesystem():
+        ref_dir = Path("ref")
+        cmp_dir = Path("cmp")
+        ref_dir.mkdir()
+        cmp_dir.mkdir()
+
+        result = runner.invoke(cli, ["dirs", str(ref_dir), str(cmp_dir)])
+
+    assert result.exit_code == 0
+    assert captured["disabled"] is False
+    assert captured["kwargs"]["progress_reporter"] is fake_reporter
+    assert captured["entered"] is True
+    assert captured["exited"] is True
+    assert captured["rendered"] is report
+
+
+def test_dirs_command_supports_no_progress(monkeypatch):
+    runner = CliRunner()
+    report = object()
+    captured = {}
+
+    class FakeReporter:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_create_progress_reporter(*, disabled=False):
+        captured["disabled"] = disabled
+        return FakeReporter()
+
+    monkeypatch.setattr(cli_module.progress, "create_progress_reporter", fake_create_progress_reporter)
+    monkeypatch.setattr(cli_module.formatter, "print_report", lambda value: None)
+    monkeypatch.setattr(cli_module.core, "execute", lambda **kwargs: report)
+
+    with runner.isolated_filesystem():
+        ref_dir = Path("ref")
+        cmp_dir = Path("cmp")
+        ref_dir.mkdir()
+        cmp_dir.mkdir()
+
+        result = runner.invoke(cli, ["dirs", str(ref_dir), str(cmp_dir), "--no-progress"])
+
+    assert result.exit_code == 0
+    assert captured["disabled"] is True

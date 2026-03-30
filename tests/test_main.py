@@ -21,13 +21,16 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
     class FakeService:
         def __init__(self):
             self.request = None
+            self.progress_reporter = None
             self.report = object()
 
-        def run(self, request):
+        def run(self, request, progress_reporter=None):
             self.request = request
+            self.progress_reporter = progress_reporter
             return self.report
 
     fake_service = FakeService()
+    progress_reporter = object()
 
     monkeypatch.setattr(main.ComparisonService, "default", lambda: fake_service)
 
@@ -38,6 +41,7 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
         common_pattern=r"\d{8}\.nc",
         variables=["temp"],
         last_time_step=True,
+        progress_reporter=progress_reporter,
     )
 
     assert report is fake_service.report
@@ -52,6 +56,7 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
     assert fake_service.request.dask_scheduler is None
     assert fake_service.request.dask_scheduler_file is None
     assert fake_service.request.dask_workers is None
+    assert fake_service.progress_reporter is progress_reporter
 
 
 def test_build_request_normalizes_default_variable_selection_to_none():
