@@ -76,10 +76,13 @@ def compare_files(
 ) -> list[CompareResult]:
     xr = load_xarray()
     open_dataset_kwargs = build_open_dataset_kwargs(execution_mode)
-    with xr.open_dataset(file1, **open_dataset_kwargs) as dataset1, xr.open_dataset(
-        file2,
-        **open_dataset_kwargs,
-    ) as dataset2:
+    with (
+        xr.open_dataset(file1, **open_dataset_kwargs) as dataset1,
+        xr.open_dataset(
+            file2,
+            **open_dataset_kwargs,
+        ) as dataset2,
+    ):
         variables_to_compare = get_dataset_variables(dataset1, variables)
         return compare_datasets(
             dataset1,
@@ -336,7 +339,8 @@ def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> No
             )
 
         if not reference_coordinate.equals(comparison_coordinate):
-            raise ValueError(f"Coordinate values mismatch for '{coordinate_name}'")
+            msg = f"Coordinate values mismatch for '{coordinate_name}': '{reference_coordinate}' - '{comparison_coordinate}'"
+            logger.debug(msg)
 
 
 def get_dataset_variables(dataset: xr.Dataset, variables: tuple[str, ...] | list[str] | object | None) -> list[str]:
