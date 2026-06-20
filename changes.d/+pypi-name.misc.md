@@ -1,1 +1,1 @@
-Published on PyPI under the general-purpose name `x-diff` (install with `pip install x-diff` / `uv tool install x-diff`). The CLI command and import package remain `xdiff`.
+Published on PyPI under the general-purpose name `xdiffly` (install with `pip install xdiffly` / `uv tool install xdiffly`). The CLI command and import package remain `xdiff`.

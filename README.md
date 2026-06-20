@@ -36,13 +36,13 @@ uv run xdiff --help
 
 ### Install globally with uv tool
 
-The package is published on PyPI as `x-diff`; it installs the `xdiff` command.
+The package is published on PyPI as `xdiffly`; it installs the `xdiff` command.
 
 ```shell
-uv tool install --python 3.13 x-diff
+uv tool install --python 3.13 xdiffly
 ```
 
-`uv tool install` installs `x-diff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
+`uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
 
 ## Usage
 

@@ -106,7 +106,7 @@ def _execution_options(command):
     invoke_without_command=True,
 )
 @click.version_option(
-    version=importlib.metadata.version("x-diff"),
+    version=importlib.metadata.version("xdiffly"),
     prog_name="xdiff",
 )
 @click.pass_context

@@ -4,7 +4,7 @@ name: Publish to PyPI
 # Uses PyPI Trusted Publishing (OIDC) — no API token is stored in the repo.
 #
 # One-time PyPI setup (https://pypi.org/manage/account/publishing/):
-#   - PyPI Project: x-diff   (use a "pending publisher" before the first upload)
+#   - PyPI Project: xdiffly   (use a "pending publisher" before the first upload)
 #   - Owner:        anto6715
 #   - Repository:   X-Diff
 #   - Workflow:     publish.yml
