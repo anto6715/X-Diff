@@ -138,12 +138,32 @@ def test_compare_variables_rejects_dimension_name_mismatch_even_when_shape_match
         compare_variables(reference, comparison, "temp", last_time_step=False)
 
 
-def test_compare_variables_rejects_coordinate_value_mismatches():
-    reference = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [0, 1]})
+def test_compare_variables_allows_coordinate_value_mismatches():
+    reference = xr.DataArray([1.0, 3.0], dims=("time",), coords={"time": [0, 1]})
     comparison = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [1, 2]})
 
-    with pytest.raises(ValueError, match="Coordinate values mismatch"):
-        compare_variables(reference, comparison, "temp", last_time_step=False)
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.min_diff == 0.0
+    assert result.max_diff == 1.0
+    assert result.relative_error == 0.5
+
+
+def test_compare_variables_arrays_mode_ignores_coordinate_labels():
+    reference = xr.DataArray([1.0, 3.0], dims=("time",), coords={"time": [0, 1]})
+    comparison = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [1, 2]})
+
+    result = compare_variables(
+        reference,
+        comparison,
+        "temp",
+        last_time_step=False,
+        execution_mode=ExecutionMode.ARRAYS,
+    )
+
+    assert result.min_diff == 0.0
+    assert result.max_diff == 1.0
+    assert result.relative_error == 0.5
 
 
 def test_compare_variables_raises_on_all_nan_values():

@@ -177,6 +177,8 @@ def compare_variables_with_chunks(
     variable: str,
 ) -> CompareResult:
     """Reduce a possibly Dask-backed variable comparison down to scalar metrics."""
+    ref_da = strip_coordinate_labels(ref_da)
+    cmp_da = strip_coordinate_labels(cmp_da)
     metrics = build_array_comparison_metrics(ref_da, cmp_da).compute()
     all_missing = bool(extract_scalar(metrics["all_missing"]))
     if all_missing:
@@ -227,6 +229,12 @@ def build_relative_error_metric(diff_da: xr.DataArray, cmp_da: xr.DataArray):
     rel_err_array = abs_diff / abs_cmp
     rel_err_array = xr.where(np.isinf(rel_err_array), np.nan, rel_err_array)
     return rel_err_array.max(skipna=True)
+
+
+def strip_coordinate_labels(data_array: xr.DataArray) -> xr.DataArray:
+    """Return a view-like DataArray that keeps data/dims but disables coordinate alignment."""
+    xr = load_xarray()
+    return xr.DataArray(data_array.data, dims=data_array.dims, name=data_array.name)
 
 
 def extract_scalar(data_array: xr.DataArray):
@@ -316,31 +324,36 @@ def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> No
     reference_coordinates = set(ref_da.coords)
     comparison_coordinates = set(cmp_da.coords)
     if reference_coordinates != comparison_coordinates:
-        raise ValueError(
-            "Coordinate mismatch: "
-            f"'{', '.join(sorted(reference_coordinates)) or '-'}' - "
-            f"'{', '.join(sorted(comparison_coordinates)) or '-'}'"
+        logger.debug(
+            "Coordinate mismatch: '%s' - '%s'",
+            ", ".join(sorted(reference_coordinates)) or "-",
+            ", ".join(sorted(comparison_coordinates)) or "-",
         )
 
-    for coordinate_name in sorted(reference_coordinates):
+    for coordinate_name in sorted(reference_coordinates & comparison_coordinates):
         reference_coordinate = ref_da.coords[coordinate_name]
         comparison_coordinate = cmp_da.coords[coordinate_name]
 
         if reference_coordinate.dims != comparison_coordinate.dims:
-            raise ValueError(
-                f"Coordinate dimension mismatch for '{coordinate_name}': "
-                f"'{reference_coordinate.dims}' - '{comparison_coordinate.dims}'"
+            logger.debug(
+                "Coordinate dimension mismatch for '%s': '%s' - '%s'",
+                coordinate_name,
+                reference_coordinate.dims,
+                comparison_coordinate.dims,
             )
+            continue
 
         if np.dtype(reference_coordinate.dtype) != np.dtype(comparison_coordinate.dtype):
-            raise ValueError(
-                f"Coordinate type mismatch for '{coordinate_name}': "
-                f"'{reference_coordinate.dtype}' - '{comparison_coordinate.dtype}'"
+            logger.debug(
+                "Coordinate type mismatch for '%s': '%s' - '%s'",
+                coordinate_name,
+                reference_coordinate.dtype,
+                comparison_coordinate.dtype,
             )
+            continue
 
         if not reference_coordinate.equals(comparison_coordinate):
-            msg = f"Coordinate values mismatch for '{coordinate_name}': '{reference_coordinate}' - '{comparison_coordinate}'"
-            logger.debug(msg)
+            logger.debug("Coordinate values mismatch for '%s'", coordinate_name)
 
 
 def get_dataset_variables(dataset: xr.Dataset, variables: tuple[str, ...] | list[str] | object | None) -> list[str]:
