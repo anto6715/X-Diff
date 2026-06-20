@@ -7,11 +7,6 @@ in netCDF format.
 ![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 [![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/ncCompare)
-[![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
-[![Pip](https://img.shields.io/badge/pip->19.0.3-brown.svg)](https://pypi.org/project/pip/)
-[![netcdf4](https://img.shields.io/badge/netcdf4-1.7.1.post1-brown.svg)](https://pypi.org/project/pip/)
-[![xarray](https://img.shields.io/badge/xarray-2024.6.0-brown.svg)](https://pypi.org/project/pip/)
-[![rich](https://img.shields.io/badge/rich-13.7.1-brown.svg)](https://github.com/Textualize/rich?tab=readme-ov-file)
 
 ![Output](https://github.com/anto6715/ncCompare/raw/master/docs/output.png)
 
@@ -27,24 +22,16 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-`xdiff` currently supports Python 3.10 through 3.13. Create and activate a
-project-local environment with a supported interpreter:
+`xdiff` currently supports Python 3.10 through 3.13. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
-uv venv --python 3.13
-source .venv/bin/activate
+uv sync --python 3.13
 ```
 
-Then install `xdiff` inside the active environment:
+Run the CLI through uv:
 
 ```shell
-uv pip install --python .venv/bin/python -e .
-```
-
-Run the CLI from the active environment:
-
-```shell
-xdiff --help
+uv run xdiff --help
 ```
 
 ### Install globally with uv tool
@@ -57,14 +44,10 @@ uv tool install --python 3.13 xdiff
 
 ## Usage
 
-If you installed in `.venv`, activate it first:
+From a source checkout, prefix commands with `uv run`. If you installed with `uv tool install`, use `xdiff` directly.
 
 ```shell
-source .venv/bin/activate
-```
-
-```shell
-xdiff [OPTIONS] COMMAND [ARGS]...
+uv run xdiff [OPTIONS] COMMAND [ARGS]...
 
   netCDF comparison tool.
 
@@ -83,19 +66,18 @@ Commands:
 It is possible to choose which parameter to compare:
 
 ```shell
-xdiff dirs folder1 folder2 -v votemper -v vosaline
+uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
 
-
 ### Filter files
 
-As default **xdiff** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
+By default **xdiff** iterates over all files in **folder1** and expects to find them in **folder2**. Using filters,
 it is possible to select only a subset of input files. For example:
 
 ```shell
-xdiff dirs folder1 folder2 -f "*_grid_T.nc"
+uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
@@ -103,21 +85,23 @@ xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 It is possible to compare two files with different filenames directly:
 
 ```shell
-xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+uv run xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
 ```
 
-For directory comparisons, it is still possible to match files with different names if they share a common pattern.
-For example, if we have:
+For directory comparisons, files with different names can still be matched if they share a common substring.
+For example, given:
 
-* `a/my-simu_19820101_grid_T.nc`
-* `b/another-exp_19820101_grid_T.nc`
+- `a/my-simu_19820101_grid_T.nc`
+- `b/another-exp_19820101_grid_T.nc`
 
-It is still possible to compare the file with:
+Pass the common part as a regex pattern:
+
 ```shell
-xdiff dirs folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
+uv run xdiff dirs folder1 folder2 --common-pattern "\d{8}"
 ```
 
-Notice the regex syntax `.+` to match any pattern before `_19820101`
+The pattern is matched against both filenames using `re.findall`. Two files are considered a pair when the
+pattern produces the same match in both names — in this case the shared date `19820101`.
 
 ### Dask file-level execution
 
@@ -127,11 +111,16 @@ Notice the regex syntax `.+` to match any pattern before `_19820101`
 
 GitHub Actions runs the test suite on every pull request and on pushes to `master`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
 
-To run the same checks locally:
+To run the same checks locally, install the project and dev dependencies with a single command:
 
 ```shell
-poetry install --with dev
-poetry run pytest --cov --cov-report=term-missing --cov-report=xml
+uv sync --group dev
+```
+
+Then run the suite:
+
+```shell
+uv run pytest --cov --cov-report=term-missing --cov-report=xml
 ```
 
 The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
@@ -151,13 +140,13 @@ Use the pull request number as the filename prefix when you want Towncrier to re
 Create a changelog entry with the Towncrier CLI:
 
 ```shell
-poetry run towncrier create 123.bugfix.md --content "Improved CLI filtering so directory comparisons skip unrelated files more reliably."
+uv run towncrier create 123.bugfix.md --content "Improved CLI filtering so directory comparisons skip unrelated files more reliably."
 ```
 
 Create an orphan entry when there is no associated PR:
 
 ```shell
-poetry run towncrier create +internal-cleanup.misc.md --content "Cleaned up internal comparison helpers and simplified related tests."
+uv run towncrier create +internal-cleanup.misc.md --content "Cleaned up internal comparison helpers and simplified related tests."
 ```
 
 If you omit `--content`, `towncrier create` will open your editor so you can write the entry interactively.
@@ -165,14 +154,14 @@ If you omit `--content`, `towncrier create` will open your editor so you can wri
 Validate or preview changelog entries locally with:
 
 ```shell
-poetry run towncrier build --draft --version 0.2.6
+uv run towncrier build --draft --version 0.2.6
 ```
 
 To mirror the CI-style branch check after committing or staging your changelog entry:
 
 ```shell
 git fetch origin master:refs/remotes/origin/master
-poetry run towncrier check --compare-with origin/master --staged
+uv run towncrier check --compare-with origin/master --staged
 ```
 
 Release notes are generated from `release/X.Y.Z` branches. Open a PR from `release/X.Y.Z` to `master`, and CI will:
@@ -181,7 +170,7 @@ Release notes are generated from `release/X.Y.Z` branches. Open a PR from `relea
 2. run `towncrier build --yes --version X.Y.Z`
 3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
 
-In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](/work/antonio/dev/ncCompare/.github/workflows/release-changelog.yml).
+In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](.github/workflows/release-changelog.yml).
 
 After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
 
@@ -190,7 +179,9 @@ After the release PR is merged, merge `master` back into `develop` so the genera
 - Antonio Mariani (antonio.mariani@cmcc.it)
 
 ## Contributing
+
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
 
 ## Contact
+
 For any questions or suggestions, please open an issue on the project's GitHub repository.

@@ -7,10 +7,16 @@
 
 ## Install
 
-Install the optional Dask dependencies into the same environment used to run `xdiff`:
+Dask dependencies are part of the default `xdiff` environment. Install the project with uv:
 
 ```shell
-uv pip install --python .venv/bin/python -e '.[dask]'
+uv sync
+```
+
+For development, include the dev dependency group:
+
+```shell
+uv sync --group dev
 ```
 
 ## Execution Modes
@@ -32,11 +38,11 @@ If none of these options is provided, `xdiff` fails fast instead of silently fal
 Use a local cluster when you are running on a workstation or inside a single allocated HPC compute node and you want `xdiff` to use that node directly.
 
 ```shell
-xdiff dirs a b --execution-mode files --dask-workers 32
+uv run xdiff dirs a b --execution-mode files --dask-workers 32
 ```
 
 ```shell
-xdiff files reference.nc comparison.nc --execution-mode arrays --dask-workers 32
+uv run xdiff files reference.nc comparison.nc --execution-mode arrays --dask-workers 32
 ```
 
 The local-cluster path creates one Dask worker process per requested worker. This is a conservative default for file-level netCDF I/O because it avoids thread-safety surprises and maps cleanly to HPC allocations.
@@ -48,13 +54,13 @@ Use an external scheduler when you already manage the cluster outside `xdiff`, f
 Attach by scheduler address:
 
 ```shell
-xdiff dirs a b --execution-mode files --dask-scheduler tcp://scheduler.example:8786
+uv run xdiff dirs a b --execution-mode files --dask-scheduler tcp://scheduler.example:8786
 ```
 
 Attach by scheduler file:
 
 ```shell
-xdiff dirs a b --execution-mode files --dask-scheduler-file scheduler.json
+uv run xdiff dirs a b --execution-mode files --dask-scheduler-file scheduler.json
 ```
 
 ## HPC Notes
