@@ -81,14 +81,3 @@ def test_build_request_normalizes_dask_runtime_options():
     assert request.execution_mode is ExecutionMode.FILES
     assert request.dask_workers == 8
 
-
-def test_build_request_normalizes_arrays_execution_mode():
-    request = main.build_request(
-        reference_path=Path("ref-dir"),
-        comparison_path=Path("cmp-dir"),
-        execution_mode="arrays",
-        dask_workers=2,
-    )
-
-    assert request.execution_mode is ExecutionMode.ARRAYS
-    assert request.dask_workers == 2

@@ -65,7 +65,7 @@ def build_request(
         common_pattern=common_pattern,
         variables=normalize_variables(variables),
         last_time_step=last_time_step,
-        execution_mode=normalize_execution_mode(execution_mode),
+        execution_mode=execution_mode,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
@@ -77,11 +77,6 @@ def normalize_variables(variables: Iterable[str] | object) -> tuple[str, ...] | 
         return None
     return tuple(variables)
 
-
-def normalize_execution_mode(execution_mode: ExecutionMode | str) -> ExecutionMode:
-    if isinstance(execution_mode, ExecutionMode):
-        return execution_mode
-    return ExecutionMode(execution_mode)
 
 
 def load_files(directory: Path, filter_name: str) -> list[Path]:

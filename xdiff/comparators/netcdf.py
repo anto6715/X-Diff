@@ -19,7 +19,7 @@ from xdiff.model import CompareResult
 from xdiff.model.artifact import ArtifactKind
 from xdiff.model.comparison import Comparison
 from xdiff.model.match import ArtifactMatch
-from xdiff.model.request import CompareRequest, ExecutionMode
+from xdiff.model.request import CompareRequest
 
 warnings.filterwarnings("ignore", message="All-NaN slice encountered")
 
@@ -60,7 +60,6 @@ class NetcdfComparator(ArtifactComparator):
                 match.comparison.path,
                 request.variables,
                 last_time_step=request.last_time_step,
-                execution_mode=request.execution_mode,
             )
         )
         return comparison
@@ -72,24 +71,15 @@ def compare_files(
     variables: tuple[str, ...] | list[str] | object | None,
     *,
     last_time_step: bool,
-    execution_mode: ExecutionMode = ExecutionMode.SERIAL,
 ) -> list[CompareResult]:
     xr = load_xarray()
-    open_dataset_kwargs = build_open_dataset_kwargs(execution_mode)
-    with (
-        xr.open_dataset(file1, **open_dataset_kwargs) as dataset1,
-        xr.open_dataset(
-            file2,
-            **open_dataset_kwargs,
-        ) as dataset2,
-    ):
+    with xr.open_dataset(file1) as dataset1, xr.open_dataset(file2) as dataset2:
         variables_to_compare = get_dataset_variables(dataset1, variables)
         return compare_datasets(
             dataset1,
             dataset2,
             variables_to_compare,
             last_time_step=last_time_step,
-            execution_mode=execution_mode,
         )
 
 
@@ -99,7 +89,6 @@ def compare_datasets(
     variables: list[str],
     *,
     last_time_step: bool,
-    execution_mode: ExecutionMode = ExecutionMode.SERIAL,
 ) -> list[CompareResult]:
     results: list[CompareResult] = []
 
@@ -114,7 +103,6 @@ def compare_datasets(
                     comparison_field,
                     variable,
                     last_time_step=last_time_step,
-                    execution_mode=execution_mode,
                 )
             )
         except Exception as exc:
@@ -129,7 +117,6 @@ def compare_variables(
     variable: str,
     *,
     last_time_step: bool,
-    execution_mode: ExecutionMode = ExecutionMode.SERIAL,
 ) -> CompareResult:
     if last_time_step:
         if is_time_coordinate_variable(variable, ref_da, cmp_da):
@@ -138,9 +125,6 @@ def compare_variables(
         cmp_da = select_last_time_step(cmp_da)
 
     validate_matching_metadata(ref_da, cmp_da)
-
-    if execution_mode is ExecutionMode.ARRAYS:
-        return compare_variables_with_chunks(ref_da, cmp_da, variable)
 
     reference_values = ref_da.values
     comparison_values = cmp_da.values
@@ -163,83 +147,6 @@ def compare_variables(
     )
 
 
-def build_open_dataset_kwargs(execution_mode: ExecutionMode) -> dict[str, object]:
-    """Return dataset opening options for the selected execution strategy."""
-    if execution_mode is ExecutionMode.ARRAYS:
-        # Let xarray ask Dask for a reasonable per-variable chunk layout.
-        return {"chunks": "auto"}
-    return {}
-
-
-def compare_variables_with_chunks(
-    ref_da: xr.DataArray,
-    cmp_da: xr.DataArray,
-    variable: str,
-) -> CompareResult:
-    """Reduce a possibly Dask-backed variable comparison down to scalar metrics."""
-    ref_da = strip_coordinate_labels(ref_da)
-    cmp_da = strip_coordinate_labels(cmp_da)
-    metrics = build_array_comparison_metrics(ref_da, cmp_da).compute()
-    all_missing = bool(extract_scalar(metrics["all_missing"]))
-    if all_missing:
-        raise AllNaN("All nan values found")
-
-    all_zero = bool(extract_scalar(metrics["all_zero"]))
-    relative_error = 0.0 if all_zero else extract_scalar(metrics["relative_error"])
-    if is_time_dtype(cmp_da.dtype) and not all_zero:
-        relative_error = relative_error / np.timedelta64(1, "s")
-
-    return CompareResult(
-        relative_error=relative_error,
-        min_diff=extract_scalar(metrics["min_diff"]),
-        max_diff=extract_scalar(metrics["max_diff"]),
-        mask_equal=bool(extract_scalar(metrics["mask_equal"])),
-        variable=variable,
-    )
-
-
-def build_array_comparison_metrics(ref_da: xr.DataArray, cmp_da: xr.DataArray):
-    """Build lazy scalar reductions for chunked comparisons."""
-    xr = load_xarray()
-    difference = ref_da - cmp_da
-
-    return xr.Dataset(
-        data_vars={
-            "all_missing": difference.isnull().all(),
-            "all_zero": (difference == 0).all(),
-            "mask_equal": (ref_da.isnull() == cmp_da.isnull()).all(),
-            "min_diff": difference.min(skipna=True),
-            "max_diff": difference.max(skipna=True),
-            "relative_error": build_relative_error_metric(difference, cmp_da),
-        }
-    )
-
-
-def build_relative_error_metric(diff_da: xr.DataArray, cmp_da: xr.DataArray):
-    """Build the lazy relative-error reduction for a variable comparison."""
-    xr = load_xarray()
-
-    if is_time_dtype(cmp_da.dtype):
-        abs_diff = abs(diff_da)
-        abs_cmp = abs(cmp_da.astype("int64"))
-    else:
-        abs_diff = abs(diff_da)
-        abs_cmp = abs(cmp_da)
-
-    rel_err_array = abs_diff / abs_cmp
-    rel_err_array = xr.where(np.isinf(rel_err_array), np.nan, rel_err_array)
-    return rel_err_array.max(skipna=True)
-
-
-def strip_coordinate_labels(data_array: xr.DataArray) -> xr.DataArray:
-    """Return a view-like DataArray that keeps data/dims but disables coordinate alignment."""
-    xr = load_xarray()
-    return xr.DataArray(data_array.data, dims=data_array.dims, name=data_array.name)
-
-
-def extract_scalar(data_array: xr.DataArray):
-    """Return a scalar while preserving NumPy datetime/timedelta scalar types."""
-    return np.asarray(data_array.data)[()]
 
 
 def select_last_time_step(field: xr.DataArray) -> xr.DataArray:

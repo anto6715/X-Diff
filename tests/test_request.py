@@ -6,7 +6,7 @@ from xdiff.model.request import CompareMode, CompareRequest, ExecutionMode
 
 
 def test_serial_mode_rejects_dask_options():
-    with pytest.raises(ValueError, match="Dask options require '--execution-mode files' or '--execution-mode arrays'"):
+    with pytest.raises(ValueError, match="Dask options require '--execution-mode files'"):
         CompareRequest(
             input_mode=CompareMode.DIRECTORIES,
             reference_path=Path("ref"),
@@ -31,8 +31,8 @@ def test_files_mode_requires_a_dask_backend():
         )
 
 
-def test_arrays_mode_requires_a_dask_backend():
-    with pytest.raises(ValueError, match="execution-mode arrays"):
+def test_removed_arrays_mode_is_rejected():
+    with pytest.raises(ValueError, match="arrays"):
         CompareRequest(
             input_mode=CompareMode.DIRECTORIES,
             reference_path=Path("ref"),
@@ -40,7 +40,8 @@ def test_arrays_mode_requires_a_dask_backend():
             filter_name="*.nc",
             common_pattern=None,
             variables=None,
-            execution_mode=ExecutionMode.ARRAYS,
+            execution_mode="arrays",
+            dask_workers=2,
         )
 
 

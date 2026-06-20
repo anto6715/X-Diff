@@ -17,7 +17,7 @@ from xdiff.comparators.netcdf import (
 )
 from xdiff.compare import compare
 from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
-from xdiff.model import CompareResult, ExecutionMode
+from xdiff.model import CompareResult
 
 
 def make_data_array(values, dims=("x",), dtype=None):
@@ -149,23 +149,6 @@ def test_compare_variables_allows_coordinate_value_mismatches():
     assert result.relative_error == 0.5
 
 
-def test_compare_variables_arrays_mode_ignores_coordinate_labels():
-    reference = xr.DataArray([1.0, 3.0], dims=("time",), coords={"time": [0, 1]})
-    comparison = xr.DataArray([1.0, 2.0], dims=("time",), coords={"time": [1, 2]})
-
-    result = compare_variables(
-        reference,
-        comparison,
-        "temp",
-        last_time_step=False,
-        execution_mode=ExecutionMode.ARRAYS,
-    )
-
-    assert result.min_diff == 0.0
-    assert result.max_diff == 1.0
-    assert result.relative_error == 0.5
-
-
 def test_compare_variables_raises_on_all_nan_values():
     reference = make_data_array([np.nan, np.nan])
     comparison = make_data_array([np.nan, np.nan])
@@ -233,72 +216,6 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     assert len(results) == 1
     assert results[0].variable == "temp"
     assert results[0].relative_error == 0.0
-
-
-def test_compare_files_uses_chunked_opening_for_arrays_mode(monkeypatch):
-    calls = []
-
-    class FakeDataset(dict):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class FakeXarrayModule:
-        def open_dataset(self, path, **kwargs):
-            calls.append(kwargs)
-            return FakeDataset({"temp": make_data_array([1.0, 2.0])})
-
-    monkeypatch.setattr("xdiff.comparators.netcdf.load_xarray", lambda: FakeXarrayModule())
-    monkeypatch.setattr(
-        "xdiff.comparators.netcdf.compare_datasets",
-        lambda *args, **kwargs: [CompareResult(variable="temp")],
-    )
-
-    results = compare_files(
-        Path("reference.nc"),
-        Path("comparison.nc"),
-        ["temp"],
-        last_time_step=False,
-        execution_mode=ExecutionMode.ARRAYS,
-    )
-
-    assert len(results) == 1
-    assert calls == [{"chunks": "auto"}, {"chunks": "auto"}]
-
-
-def test_compare_variables_supports_arrays_mode_with_same_results():
-    reference = make_data_array([1.0, np.nan, 3.0])
-    comparison = make_data_array([1.0, np.nan, 2.0])
-
-    result = compare_variables(
-        reference,
-        comparison,
-        "temp",
-        last_time_step=False,
-        execution_mode=ExecutionMode.ARRAYS,
-    )
-
-    assert result.relative_error == 0.5
-    assert result.min_diff == 0.0
-    assert result.max_diff == 1.0
-    assert result.mask_equal is True
-
-
-def test_compare_variables_arrays_mode_preserves_mask_comparison():
-    reference = make_data_array([1.0, np.nan])
-    comparison = make_data_array([1.0, 2.0])
-
-    result = compare_variables(
-        reference,
-        comparison,
-        "temp",
-        last_time_step=False,
-        execution_mode=ExecutionMode.ARRAYS,
-    )
-
-    assert result.mask_equal is False
 
 
 def test_compare_yields_no_match_comparison():

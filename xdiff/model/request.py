@@ -19,7 +19,6 @@ class ExecutionMode(str, Enum):
 
     SERIAL = "serial"
     FILES = "files"
-    ARRAYS = "arrays"
 
 
 def validate_execution_options(
@@ -39,7 +38,7 @@ def validate_execution_options(
 
     if execution_mode is ExecutionMode.SERIAL:
         if has_external_scheduler or dask_workers is not None:
-            raise ValueError("Dask options require '--execution-mode files' or '--execution-mode arrays'.")
+            raise ValueError("Dask options require '--execution-mode files'.")
         return
 
     if dask_workers is not None and has_external_scheduler:

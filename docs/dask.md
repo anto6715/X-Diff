@@ -1,9 +1,8 @@
 # Dask Usage
 
-`xdiff` runs in serial mode by default. Dask is opt-in and supports two explicit execution strategies:
+`xdiff` runs in serial mode by default. Dask is opt-in and supports an explicit file-level execution strategy:
 
 - `files`: one Dask task is submitted for each comparable file pair
-- `arrays`: one file pair is processed at a time, but the variable-level math stays chunked and is reduced through Dask
 
 ## Install
 
@@ -23,7 +22,6 @@ uv sync --group dev
 
 - `serial`: default behavior, no Dask required.
 - `files`: run one comparison task per matched file pair through Dask.
-- `arrays`: open datasets with `chunks="auto"` and keep the per-variable reductions lazy until only scalar results remain.
 
 When `--execution-mode files` is selected, `xdiff` requires exactly one backend choice:
 
@@ -42,7 +40,7 @@ uv run xdiff dirs a b --execution-mode files --dask-workers 32
 ```
 
 ```shell
-uv run xdiff files reference.nc comparison.nc --execution-mode arrays --dask-workers 32
+uv run xdiff files reference.nc comparison.nc --execution-mode files --dask-workers 32
 ```
 
 The local-cluster path creates one Dask worker process per requested worker. This is a conservative default for file-level netCDF I/O because it avoids thread-safety surprises and maps cleanly to HPC allocations.
@@ -68,7 +66,6 @@ uv run xdiff dirs a b --execution-mode files --dask-scheduler-file scheduler.jso
 - Workers must be able to open the same file paths seen by the submitting process. Shared filesystems are the simplest setup.
 - `xdiff` does not provision a multi-node cluster for you. It can either create a local cluster on the current node or attach to an existing external scheduler.
 - For file-level mode, start with the number of worker processes that matches your allocated cores, then reduce it if the shared filesystem becomes the bottleneck.
-- `arrays` mode currently relies on xarray's automatic chunking. There are no user-facing chunk controls yet.
 
 ## Advisories
 

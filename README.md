@@ -105,7 +105,7 @@ pattern produces the same match in both names — in this case the shared date `
 
 ### Dask file-level execution
 
-`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level or chunked-array execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
+`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 

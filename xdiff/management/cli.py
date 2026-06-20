@@ -60,6 +60,9 @@ def _validate_runtime_options(
         raise click.UsageError(str(exc)) from exc
 
 
+#
+# Common execution options
+#
 def _execution_options(command):
     command = click.option(
         "--no-progress",
@@ -68,6 +71,7 @@ def _execution_options(command):
         help="Disable live progress reporting during comparison.",
     )(command)
     command = click.option(
+        "-w",
         "--dask-workers",
         type=click.IntRange(min=1),
         metavar="N",
@@ -83,19 +87,20 @@ def _execution_options(command):
         help="Attach to an existing Dask cluster using its scheduler address.",
     )(command)
     command = click.option(
+        "-m",
         "--execution-mode",
         type=click.Choice([mode.value for mode in ExecutionMode], case_sensitive=False),
         default=ExecutionMode.SERIAL.value,
         show_default=True,
         callback=_parse_execution_mode,
-        help=(
-            "Execution strategy. 'files' submits one Dask task per matched file pair, "
-            "while 'arrays' keeps each variable comparison chunked with Dask."
-        ),
+        help="Execution strategy. 'files' submits one Dask task per matched file pair."
     )(command)
     return command
 
 
+#
+# xdiff entry point
+#
 @click.group(
     context_settings={"help_option_names": ["-h", "--help"]},
     invoke_without_command=True,
@@ -111,6 +116,9 @@ def cli(ctx: click.Context) -> None:
         click.echo(ctx.get_help())
 
 
+#
+# xdiff dirs
+#
 @cli.command("dirs")
 @click.argument(
     "reference_path",
@@ -180,6 +188,9 @@ def compare_directories(
     )
 
 
+#
+# xdiff files
+#
 @cli.command("files")
 @click.argument(
     "reference_path",

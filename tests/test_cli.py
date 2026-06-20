@@ -203,17 +203,8 @@ def test_dirs_command_rejects_parallel_mode_without_dask_backend():
     assert "--dask-workers" in result.output
 
 
-def test_files_command_accepts_dask_arrays_mode(monkeypatch):
+def test_files_command_rejects_removed_arrays_mode():
     runner = CliRunner()
-    report = object()
-    captured = {}
-
-    def fake_execute(**kwargs):
-        captured["kwargs"] = kwargs
-        return report
-
-    monkeypatch.setattr(cli_module.formatter, "print_report", lambda value: captured.setdefault("rendered", value))
-    monkeypatch.setattr(cli_module.core, "execute", fake_execute)
 
     with runner.isolated_filesystem():
         ref_file = Path("reference.nc")
@@ -234,9 +225,10 @@ def test_files_command_accepts_dask_arrays_mode(monkeypatch):
             ],
         )
 
-    assert result.exit_code == 0
-    assert captured["kwargs"]["execution_mode"] is ExecutionMode.ARRAYS
-    assert captured["kwargs"]["dask_workers"] == 2
+    assert result.exit_code != 0
+    assert "Invalid value" in result.output
+    assert "arrays" in result.output
+
 
 
 def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):

@@ -11,7 +11,7 @@ from xdiff.model.artifact import Artifact
 from xdiff.model.comparison import Comparison
 from xdiff.model.match import ArtifactMatch
 from xdiff.model.report import ComparisonReport
-from xdiff.model.request import CompareMode, CompareRequest, ExecutionMode
+from xdiff.model.request import CompareMode, CompareRequest
 
 from . import dask_runtime
 
@@ -151,14 +151,8 @@ class ComparisonService:
         request: CompareRequest,
         on_comparison_complete: Callable[[Comparison], None] | None = None,
     ) -> list[Comparison]:
-        if request.execution_mode is ExecutionMode.FILES:
+        if request.uses_dask:
             return self._compare_matches_with_dask(matches, request, on_comparison_complete=on_comparison_complete)
-        if request.execution_mode is ExecutionMode.ARRAYS:
-            return self._compare_matches_with_chunked_arrays(
-                matches,
-                request,
-                on_comparison_complete=on_comparison_complete,
-            )
 
         comparisons: list[Comparison] = []
         for match in matches:
@@ -224,32 +218,7 @@ class ComparisonService:
 
         return [comparison for comparison in comparisons if comparison is not None]
 
-    def _compare_matches_with_chunked_arrays(
-        self,
-        matches: list[ArtifactMatch],
-        request: CompareRequest,
-        on_comparison_complete: Callable[[Comparison], None] | None = None,
-    ) -> list[Comparison]:
-        if not any(self._can_parallelize_match(match) for match in matches):
-            return [
-                self._complete_match(
-                    match,
-                    request,
-                    on_comparison_complete=on_comparison_complete,
-                )
-                for match in matches
-            ]
 
-        dask_runtime.log_local_worker_advisories(request)
-        with dask_runtime.client_from_request(request):
-            return [
-                self._complete_match(
-                    match,
-                    request,
-                    on_comparison_complete=on_comparison_complete,
-                )
-                for match in matches
-            ]
 
     def _can_parallelize_match(self, match: ArtifactMatch) -> bool:
         return (
