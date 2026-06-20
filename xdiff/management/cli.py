@@ -10,8 +10,8 @@ import click
 
 from xdiff import core
 from xdiff.conf import settings
-from xdiff.model import CompareMode, ExecutionMode
-from xdiff.model.request import validate_execution_options
+from xdiff.model import CompareMode
+from xdiff.model.request import validate_dask_options
 from xdiff.printlib import formatter, progress
 
 
@@ -39,19 +39,13 @@ def _render_report(*, progress_enabled: bool, **kwargs) -> None:
         raise click.ClickException(str(exc)) from exc
 
 
-def _parse_execution_mode(_ctx, _param, value: str) -> ExecutionMode:
-    return ExecutionMode(value)
-
-
 def _validate_runtime_options(
-    execution_mode: ExecutionMode,
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
 ) -> None:
     try:
-        validate_execution_options(
-            execution_mode=execution_mode,
+        validate_dask_options(
             dask_scheduler=dask_scheduler,
             dask_scheduler_file=dask_scheduler_file,
             dask_workers=dask_workers,
@@ -75,7 +69,7 @@ def _execution_options(command):
         "--dask-workers",
         type=click.IntRange(min=1),
         metavar="N",
-        help="Start a local Dask cluster with N worker processes.",
+        help="Run comparisons in parallel on a local Dask cluster with N worker processes.",
     )(command)
     command = click.option(
         "--dask-scheduler-file",
@@ -85,15 +79,6 @@ def _execution_options(command):
     command = click.option(
         "--dask-scheduler",
         help="Attach to an existing Dask cluster using its scheduler address.",
-    )(command)
-    command = click.option(
-        "-m",
-        "--execution-mode",
-        type=click.Choice([mode.value for mode in ExecutionMode], case_sensitive=False),
-        default=ExecutionMode.SERIAL.value,
-        show_default=True,
-        callback=_parse_execution_mode,
-        help="Execution strategy. 'files' submits one Dask task per matched file pair."
     )(command)
     return command
 
@@ -111,7 +96,7 @@ def _execution_options(command):
 )
 @click.pass_context
 def cli(ctx: click.Context) -> None:
-    """netCDF comparison tool."""
+    """Explore differences between datasets."""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
@@ -164,14 +149,13 @@ def compare_directories(
     common_pattern: str | None,
     variables: tuple[str, ...],
     last_time_step: bool,
-    execution_mode: ExecutionMode,
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
     no_progress: bool,
 ) -> None:
-    """Compare two directories of netCDF files."""
-    _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
+    """Compare two directories of datasets."""
+    _validate_runtime_options(dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
         progress_enabled=not no_progress,
         reference_path=reference_path,
@@ -181,7 +165,6 @@ def compare_directories(
         common_pattern=common_pattern,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
-        execution_mode=execution_mode,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
@@ -220,14 +203,13 @@ def compare_files(
     comparison_path: Path,
     variables: tuple[str, ...],
     last_time_step: bool,
-    execution_mode: ExecutionMode,
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
     no_progress: bool,
 ) -> None:
-    """Compare two netCDF files directly, even if their filenames differ."""
-    _validate_runtime_options(execution_mode, dask_scheduler, dask_scheduler_file, dask_workers)
+    """Compare two dataset files directly, even if their filenames differ."""
+    _validate_runtime_options(dask_scheduler, dask_scheduler_file, dask_workers)
     _render_report(
         progress_enabled=not no_progress,
         reference_path=reference_path,
@@ -237,7 +219,6 @@ def compare_files(
         common_pattern=settings.DEFAULT_COMMON_PATTERN,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
-        execution_mode=execution_mode,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,

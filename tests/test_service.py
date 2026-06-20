@@ -2,7 +2,7 @@ from pathlib import Path
 
 from xdiff.core.service import ComparisonService
 from xdiff.matching import DefaultArtifactMatcher
-from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest, CompareResult, ExecutionMode
+from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest, CompareResult
 from xdiff.model.comparison import Comparison
 
 
@@ -247,7 +247,6 @@ def test_comparison_service_runs_file_pairs_through_dask(monkeypatch):
         common_pattern=None,
         variables=None,
         last_time_step=False,
-        execution_mode=ExecutionMode.FILES,
         dask_workers=2,
     )
 
@@ -295,7 +294,7 @@ def test_comparison_service_reports_dask_progress_in_completion_order(monkeypatc
 
     class RecordingReporter:
         def start(self, request):
-            events.append(("start", request.execution_mode))
+            events.append(("start", request.uses_dask))
 
         def on_discovery_complete(self, reference_count, comparison_count):
             events.append(("discovery", reference_count, comparison_count))
@@ -326,7 +325,6 @@ def test_comparison_service_reports_dask_progress_in_completion_order(monkeypatc
         common_pattern=None,
         variables=None,
         last_time_step=False,
-        execution_mode=ExecutionMode.FILES,
         dask_workers=2,
     )
 
@@ -340,7 +338,7 @@ def test_comparison_service_reports_dask_progress_in_completion_order(monkeypatc
 
     assert [comparison.reference_file.name for comparison in report.comparisons] == ["a.nc", "b.nc"]
     assert events == [
-        ("start", ExecutionMode.FILES),
+        ("start", True),
         ("discovery", 2, 2),
         ("matching", 2),
         ("comparisons_started", 2),
@@ -389,7 +387,6 @@ def test_comparison_service_warns_when_more_workers_than_file_pairs(monkeypatch,
         common_pattern=None,
         variables=None,
         last_time_step=False,
-        execution_mode=ExecutionMode.FILES,
         dask_workers=4,
     )
 

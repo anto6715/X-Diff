@@ -7,7 +7,7 @@ import xdiff.conf as settings
 
 from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
-from xdiff.model import CompareMode, CompareRequest, ComparisonReport, ExecutionMode
+from xdiff.model import CompareMode, CompareRequest, ComparisonReport
 
 if TYPE_CHECKING:
     from xdiff.printlib.progress import ProgressReporter
@@ -21,7 +21,6 @@ def execute(
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
     input_mode: CompareMode = CompareMode.DIRECTORIES,
-    execution_mode: ExecutionMode | str = ExecutionMode.SERIAL,
     dask_scheduler: str | None = None,
     dask_scheduler_file: Path | None = None,
     dask_workers: int | None = None,
@@ -35,7 +34,6 @@ def execute(
         common_pattern=common_pattern,
         variables=variables,
         last_time_step=last_time_step,
-        execution_mode=execution_mode,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
@@ -51,7 +49,6 @@ def build_request(
     common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
-    execution_mode: ExecutionMode | str = ExecutionMode.SERIAL,
     dask_scheduler: str | None = None,
     dask_scheduler_file: Path | None = None,
     dask_workers: int | None = None,
@@ -65,7 +62,6 @@ def build_request(
         common_pattern=common_pattern,
         variables=normalize_variables(variables),
         last_time_step=last_time_step,
-        execution_mode=execution_mode,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,

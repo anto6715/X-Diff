@@ -51,15 +51,15 @@ From a source checkout, prefix commands with `uv run`. If you installed with `uv
 ```shell
 uv run xdiff [OPTIONS] COMMAND [ARGS]...
 
-  netCDF comparison tool.
+  Explore differences between datasets.
 
 Options:
   --version   Show the version and exit.
   -h, --help  Show this message and exit.
 
 Commands:
-  dirs   Compare two directories of netCDF files.
-  files  Compare two netCDF files directly, even if their filenames differ.
+  dirs   Compare two directories of datasets.
+  files  Compare two dataset files directly, even if their filenames differ.
 
 ```
 

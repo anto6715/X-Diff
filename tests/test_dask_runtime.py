@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from xdiff.core import dask_runtime
-from xdiff.model.request import CompareMode, CompareRequest, ExecutionMode
+from xdiff.model.request import CompareMode, CompareRequest
 
 
 def make_local_request():
@@ -12,7 +12,6 @@ def make_local_request():
         filter_name="*.nc",
         common_pattern=None,
         variables=None,
-        execution_mode=ExecutionMode.FILES,
         dask_workers=2,
     )
 

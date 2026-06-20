@@ -1,8 +1,6 @@
 # Dask Usage
 
-`xdiff` runs in serial mode by default. Dask is opt-in and supports an explicit file-level execution strategy:
-
-- `files`: one Dask task is submitted for each comparable file pair
+`xdiff` runs serially by default. Dask is opt-in: supply a backend option and `xdiff` parallelizes the comparison by submitting one Dask task per comparable file pair. There is no separate mode switch — the presence of a backend option is what enables Dask.
 
 ## Install
 
@@ -18,29 +16,26 @@ For development, include the dev dependency group:
 uv sync --group dev
 ```
 
-## Execution Modes
+## Enabling Dask
 
-- `serial`: default behavior, no Dask required.
-- `files`: run one comparison task per matched file pair through Dask.
-
-When `--execution-mode files` is selected, `xdiff` requires exactly one backend choice:
+With no backend option, `xdiff` runs serially. Supply exactly one of the following to run in parallel through Dask:
 
 - `--dask-workers N` to create a local cluster on the current node
 - `--dask-scheduler ...` to attach to an existing scheduler by address
 - `--dask-scheduler-file ...` to attach to an existing scheduler file
 
-If none of these options is provided, `xdiff` fails fast instead of silently falling back to serial mode.
+`--dask-workers` and an external scheduler are mutually exclusive, as are the two scheduler options.
 
 ## Local Cluster
 
 Use a local cluster when you are running on a workstation or inside a single allocated HPC compute node and you want `xdiff` to use that node directly.
 
 ```shell
-uv run xdiff dirs a b --execution-mode files --dask-workers 32
+uv run xdiff dirs a b --dask-workers 32
 ```
 
 ```shell
-uv run xdiff files reference.nc comparison.nc --execution-mode files --dask-workers 32
+uv run xdiff files reference.nc comparison.nc --dask-workers 32
 ```
 
 The local-cluster path creates one Dask worker process per requested worker. This is a conservative default for file-level netCDF I/O because it avoids thread-safety surprises and maps cleanly to HPC allocations.
@@ -52,13 +47,13 @@ Use an external scheduler when you already manage the cluster outside `xdiff`, f
 Attach by scheduler address:
 
 ```shell
-uv run xdiff dirs a b --execution-mode files --dask-scheduler tcp://scheduler.example:8786
+uv run xdiff dirs a b --dask-scheduler tcp://scheduler.example:8786
 ```
 
 Attach by scheduler file:
 
 ```shell
-uv run xdiff dirs a b --execution-mode files --dask-scheduler-file scheduler.json
+uv run xdiff dirs a b --dask-scheduler-file scheduler.json
 ```
 
 ## HPC Notes

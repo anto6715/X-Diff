@@ -2,75 +2,56 @@ from pathlib import Path
 
 import pytest
 
-from xdiff.model.request import CompareMode, CompareRequest, ExecutionMode
+from xdiff.model.request import CompareMode, CompareRequest
 
 
-def test_serial_mode_rejects_dask_options():
-    with pytest.raises(ValueError, match="Dask options require '--execution-mode files'"):
-        CompareRequest(
-            input_mode=CompareMode.DIRECTORIES,
-            reference_path=Path("ref"),
-            comparison_path=Path("cmp"),
-            filter_name="*.nc",
-            common_pattern=None,
-            variables=None,
-            dask_workers=2,
-        )
-
-
-def test_files_mode_requires_a_dask_backend():
-    with pytest.raises(ValueError, match="requires either '--dask-workers'"):
-        CompareRequest(
-            input_mode=CompareMode.DIRECTORIES,
-            reference_path=Path("ref"),
-            comparison_path=Path("cmp"),
-            filter_name="*.nc",
-            common_pattern=None,
-            variables=None,
-            execution_mode=ExecutionMode.FILES,
-        )
-
-
-def test_removed_arrays_mode_is_rejected():
-    with pytest.raises(ValueError, match="arrays"):
-        CompareRequest(
-            input_mode=CompareMode.DIRECTORIES,
-            reference_path=Path("ref"),
-            comparison_path=Path("cmp"),
-            filter_name="*.nc",
-            common_pattern=None,
-            variables=None,
-            execution_mode="arrays",
-            dask_workers=2,
-        )
-
-
-def test_files_mode_rejects_mixed_scheduler_and_local_workers():
-    with pytest.raises(ValueError, match="external Dask scheduler"):
-        CompareRequest(
-            input_mode=CompareMode.DIRECTORIES,
-            reference_path=Path("ref"),
-            comparison_path=Path("cmp"),
-            filter_name="*.nc",
-            common_pattern=None,
-            variables=None,
-            execution_mode=ExecutionMode.FILES,
-            dask_scheduler="tcp://scheduler:8786",
-            dask_workers=2,
-        )
-
-
-def test_files_mode_accepts_scheduler_file():
-    request = CompareRequest(
+def _request(**overrides) -> CompareRequest:
+    kwargs = dict(
         input_mode=CompareMode.DIRECTORIES,
         reference_path=Path("ref"),
         comparison_path=Path("cmp"),
         filter_name="*.nc",
         common_pattern=None,
         variables=None,
-        execution_mode=ExecutionMode.FILES,
-        dask_scheduler_file=Path("scheduler.json"),
     )
+    kwargs.update(overrides)
+    return CompareRequest(**kwargs)
+
+
+def test_no_dask_options_runs_serial():
+    request = _request()
+
+    assert request.uses_dask is False
+    assert request.uses_external_dask_scheduler is False
+
+
+def test_dask_workers_enable_dask():
+    request = _request(dask_workers=4)
+
+    assert request.uses_dask is True
+    assert request.uses_external_dask_scheduler is False
+
+
+def test_scheduler_file_enables_dask():
+    request = _request(dask_scheduler_file=Path("scheduler.json"))
 
     assert request.uses_dask is True
     assert request.uses_external_dask_scheduler is True
+
+
+def test_rejects_both_scheduler_address_and_file():
+    with pytest.raises(ValueError, match="not both"):
+        _request(
+            dask_scheduler="tcp://scheduler:8786",
+            dask_scheduler_file=Path("scheduler.json"),
+        )
+
+
+def test_rejects_mixed_scheduler_and_local_workers():
+    with pytest.raises(ValueError, match="external Dask scheduler"):
+        _request(dask_scheduler="tcp://scheduler:8786", dask_workers=2)
+
+
+def test_rejects_non_positive_workers():
+    with pytest.raises(ValueError, match="greater than zero"):
+        _request(dask_workers=0)

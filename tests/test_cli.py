@@ -7,7 +7,7 @@ from click.testing import CliRunner
 from xdiff.conf import settings
 from xdiff.management.cli import cli
 from xdiff.model.report import ComparisonReport
-from xdiff.model import CompareMode, ExecutionMode
+from xdiff.model import CompareMode
 
 cli_module = importlib.import_module("xdiff.management.cli")
 
@@ -76,7 +76,6 @@ def test_dirs_command_builds_directory_request(monkeypatch):
     assert captured["kwargs"]["common_pattern"] == r"\d{8}_grid_T\.nc"
     assert captured["kwargs"]["variables"] == ("votemper", "vosaline")
     assert captured["kwargs"]["last_time_step"] is True
-    assert captured["kwargs"]["execution_mode"] is ExecutionMode.SERIAL
     assert captured["kwargs"]["dask_scheduler"] is None
     assert captured["kwargs"]["dask_scheduler_file"] is None
     assert captured["kwargs"]["dask_workers"] is None
@@ -121,7 +120,6 @@ def test_files_command_builds_file_request_for_different_filenames(monkeypatch):
     assert captured["kwargs"]["common_pattern"] is settings.DEFAULT_COMMON_PATTERN
     assert captured["kwargs"]["variables"] == ("thetao",)
     assert captured["kwargs"]["last_time_step"] is True
-    assert captured["kwargs"]["execution_mode"] is ExecutionMode.SERIAL
     assert captured["kwargs"]["dask_scheduler"] is None
     assert captured["kwargs"]["dask_scheduler_file"] is None
     assert captured["kwargs"]["dask_workers"] is None
@@ -142,7 +140,7 @@ def test_files_command_rejects_non_netcdf_inputs():
     assert "only .nc files are supported" in result.output
 
 
-def test_dirs_command_accepts_dask_files_mode(monkeypatch):
+def test_dirs_command_enables_dask_with_workers(monkeypatch):
     runner = CliRunner()
     report = object()
     captured = {}
@@ -166,8 +164,6 @@ def test_dirs_command_accepts_dask_files_mode(monkeypatch):
                 "dirs",
                 str(ref_dir),
                 str(cmp_dir),
-                "--execution-mode",
-                "files",
                 "--dask-workers",
                 "4",
             ],
@@ -175,11 +171,11 @@ def test_dirs_command_accepts_dask_files_mode(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["rendered"] is report
-    assert captured["kwargs"]["execution_mode"] is ExecutionMode.FILES
     assert captured["kwargs"]["dask_workers"] == 4
+    assert captured["kwargs"]["dask_scheduler"] is None
 
 
-def test_dirs_command_rejects_parallel_mode_without_dask_backend():
+def test_dirs_command_rejects_scheduler_with_local_workers():
     runner = CliRunner()
 
     with runner.isolated_filesystem():
@@ -194,40 +190,15 @@ def test_dirs_command_rejects_parallel_mode_without_dask_backend():
                 "dirs",
                 str(ref_dir),
                 str(cmp_dir),
-                "--execution-mode",
-                "files",
-            ],
-        )
-
-    assert result.exit_code != 0
-    assert "--dask-workers" in result.output
-
-
-def test_files_command_rejects_removed_arrays_mode():
-    runner = CliRunner()
-
-    with runner.isolated_filesystem():
-        ref_file = Path("reference.nc")
-        cmp_file = Path("comparison.nc")
-        ref_file.write_text("placeholder")
-        cmp_file.write_text("placeholder")
-
-        result = runner.invoke(
-            cli,
-            [
-                "files",
-                str(ref_file),
-                str(cmp_file),
-                "--execution-mode",
-                "arrays",
+                "--dask-scheduler",
+                "tcp://scheduler:8786",
                 "--dask-workers",
                 "2",
             ],
         )
 
     assert result.exit_code != 0
-    assert "Invalid value" in result.output
-    assert "arrays" in result.output
+    assert "external Dask scheduler" in result.output
 
 
 
