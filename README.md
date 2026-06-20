@@ -5,10 +5,10 @@ Today, X-Diff supports detailed comparison of netCDF files and helps users ident
 in netCDF format.
 
 ![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
-[![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
-[![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/ncCompare)
+[![Tests](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/anto6715/X-Diff/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/X-Diff)
 
-![Output](https://github.com/anto6715/ncCompare/raw/master/docs/output.png)
+![Output](https://github.com/anto6715/X-Diff/raw/master/docs/output.png)
 
 ## Installation
 
@@ -71,7 +71,7 @@ It is possible to choose which parameter to compare:
 uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
-![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
+![Variables](https://github.com/anto6715/X-Diff/raw/master/docs/variables.png)
 
 ### Filter files
 
