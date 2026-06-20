@@ -56,8 +56,8 @@ Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  dirs   Compare two directories of netCDF files.
-  files  Compare two netCDF files directly, even if their filenames differ.
+  ncdirs   Compare two directories of netCDF files.
+  ncfiles  Compare two netCDF files directly, even if their filenames differ.
 
 ```
 
@@ -66,7 +66,7 @@ Commands:
 It is possible to choose which parameter to compare:
 
 ```shell
-uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
+uv run xdiff ncdirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
@@ -77,7 +77,7 @@ By default **xdiff** iterates over all files in **folder1** and expects to find 
 it is possible to select only a subset of input files. For example:
 
 ```shell
-uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
+uv run xdiff ncdirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
@@ -85,7 +85,7 @@ uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 It is possible to compare two files with different filenames directly:
 
 ```shell
-uv run xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+uv run xdiff ncfiles a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
 ```
 
 For directory comparisons, files with different names can still be matched if they share a common substring.
@@ -97,7 +97,7 @@ For example, given:
 Pass the common part as a regex pattern:
 
 ```shell
-uv run xdiff dirs folder1 folder2 --common-pattern "\d{8}"
+uv run xdiff ncdirs folder1 folder2 --common-pattern "\d{8}"
 ```
 
 The pattern is matched against both filenames using `re.findall`. Two files are considered a pair when the
