@@ -1,16 +1,12 @@
-# netCDF Diff Comparison tool - ncpare
+# X-Diff
 
-`ncpare` is a tool for comparing netCDF files, providing a detailed diff of their contents. It is designed to help users
-identify differences between datasets stored in netCDF format.
+`xdiff` is the CLI for **X-Diff**, a general diff tool name where `X` can stand for different comparison targets.
+Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
+in netCDF format.
 
-![Python](https://img.shields.io/badge/Python->3.10-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
 [![Tests](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/ncCompare/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/ncCompare/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/ncCompare)
-[![Anaconda](https://img.shields.io/badge/conda->22.11.1-green.svg)](https://anaconda.org/)
-[![Pip](https://img.shields.io/badge/pip->19.0.3-brown.svg)](https://pypi.org/project/pip/)
-[![netcdf4](https://img.shields.io/badge/netcdf4-1.7.1.post1-brown.svg)](https://pypi.org/project/pip/)
-[![xarray](https://img.shields.io/badge/xarray-2024.6.0-brown.svg)](https://pypi.org/project/pip/)
-[![rich](https://img.shields.io/badge/rich-13.7.1-brown.svg)](https://github.com/Textualize/rich?tab=readme-ov-file)
 
 ![Output](https://github.com/anto6715/ncCompare/raw/master/docs/output.png)
 
@@ -26,60 +22,44 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-Create and activate a project-local environment:
+`xdiff` currently supports Python 3.10 through 3.13. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
-uv venv
-source .venv/bin/activate
+uv sync --python 3.13
 ```
 
-Then install `nccompare` inside the active environment:
+Run the CLI through uv:
 
 ```shell
-uv pip install --python .venv/bin/python -e .
-```
-
-Run the CLI from the active environment:
-
-```shell
-ncpare --help
+uv run xdiff --help
 ```
 
 ### Install globally with uv tool
 
+The package is published on PyPI as `xdiffly`; it installs the `xdiff` command.
+
 ```shell
-uv tool install nccompare
+uv tool install --python 3.13 xdiffly
 ```
 
-`uv tool install` installs `ncpare` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
+`uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
 
 ## Usage
 
-If you installed in `.venv`, activate it first:
+From a source checkout, prefix commands with `uv run`. If you installed with `uv tool install`, use `xdiff` directly.
 
 ```shell
-source .venv/bin/activate
-```
+uv run xdiff [OPTIONS] COMMAND [ARGS]...
 
-```shell
-ncpare [-h] [-f FILTER_NAME] [--common-pattern COMMON_PATTERN] [-v VARIABLES [VARIABLES ...]] [--last_time_step] [-V] folder1 folder2
+  Explore differences between datasets.
 
-netCDF Comparison Tool
+Options:
+  --version   Show the version and exit.
+  -h, --help  Show this message and exit.
 
-positional arguments:
-  folder1               Path of first folder to compare
-  folder2               Path of second folder to compare
-
-options:
-  -h, --help            show this help message and exit
-  -f, --filter FILTER_NAME
-                        Filter to select files to compare. Examples: *.nc, *_grid_*
-  --common-pattern COMMON_PATTERN
-                        Common file pattern in two files to compareEs mfsX_date.nc and expX_date.nc -> date.nc is the common part
-  -v, --variables VARIABLES [VARIABLES ...]
-                        Variable to compare
-  --last_time_step      If True, compare only the last time step available in each file
-  -V, --version         Print version and exit
+Commands:
+  dirs   Compare two directories of datasets.
+  files  Compare two dataset files directly, even if their filenames differ.
 
 ```
 
@@ -88,85 +68,122 @@ options:
 It is possible to choose which parameter to compare:
 
 ```shell
-ncpare folder1 folder2 -v "votemper" "vosaline"
+uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
 
-
 ### Filter files
 
-As default **ncpare** read iterate over all files in **folder1** and expect to find them in **folder2**. Using filters,
+By default **xdiff** iterates over all files in **folder1** and expects to find them in **folder2**. Using filters,
 it is possible to select only a subset of input files. For example:
 
 ```shell
-ncpare folder1 folder2 -f "*_grid_T.nc"
+uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
 
-It is possible to compare two files also if the filenames are slightly different if they have a common pattern.
-For example, if we have:
+It is possible to compare two files with different filenames directly:
 
-* `a/my-simu_19820101_grid_T.nc`
-* `b/another-exp_19820101_grid_T.nc`
-
-It is still possible to compare the file with:
 ```shell
-ncpare folder1 folder2 --common-pattern ".+_19820101_grid_T.nc"
+uv run xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
 ```
 
-Notice the regex syntax `.+` to match any pattern before `_19820101`
+For directory comparisons, files with different names can still be matched if they share a common substring.
+For example, given:
+
+- `a/my-simu_19820101_grid_T.nc`
+- `b/another-exp_19820101_grid_T.nc`
+
+Pass the common part as a regex pattern:
+
+```shell
+uv run xdiff dirs folder1 folder2 --common-pattern "\d{8}"
+```
+
+The pattern is matched against both filenames using `re.findall`. Two files are considered a pair when the
+pattern produces the same match in both names — in this case the shared date `19820101`.
+
+### Dask file-level execution
+
+`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 
 GitHub Actions runs the test suite on every pull request and on pushes to `master`. Coverage is uploaded from CI to Codecov, which powers the README coverage badge.
 
-To run the same checks locally:
+To run the same checks locally, install the project and dev dependencies with a single command:
 
 ```shell
-poetry install --with dev
-poetry run pytest --cov --cov-report=term-missing --cov-report=xml
+uv sync --group dev
+```
+
+Then run the suite:
+
+```shell
+uv run pytest --cov --cov-report=term-missing --cov-report=xml
 ```
 
 The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
 
 ## Changelog
 
-This repository uses `towncrier` for release notes. Every pull request must include a fragment under `newsfragments/` for user-facing changes, for example:
+This repository uses `towncrier` for release notes. Every pull request must include a changelog entry under `changes.d/` for user-facing changes, for example:
 
 ```text
-newsfragments/+cli-filter.bugfix.md
-newsfragments/+tests.doc.md
+changes.d/123.bugfix.md
+changes.d/124.doc.md
+changes.d/+internal-cleanup.misc.md
 ```
 
-Validate fragments locally with:
+Use the pull request number as the filename prefix when you want Towncrier to render a linked PR reference. With the current configuration, `changes.d/123.bugfix.md` will render as `[#123]` in `CHANGES.md`. Use `+` instead of a number when there is no associated PR to link.
+
+Create a changelog entry with the Towncrier CLI:
 
 ```shell
-poetry run towncrier build --draft --version 0.2.6
+uv run towncrier create 123.bugfix.md --content "Improved CLI filtering so directory comparisons skip unrelated files more reliably."
 ```
 
-To mirror the CI-style branch check after committing or staging your fragment:
+Create an orphan entry when there is no associated PR:
+
+```shell
+uv run towncrier create +internal-cleanup.misc.md --content "Cleaned up internal comparison helpers and simplified related tests."
+```
+
+If you omit `--content`, `towncrier create` will open your editor so you can write the entry interactively.
+
+Validate or preview changelog entries locally with:
+
+```shell
+uv run towncrier build --draft --version 0.2.6
+```
+
+To mirror the CI-style branch check after committing or staging your changelog entry:
 
 ```shell
 git fetch origin master:refs/remotes/origin/master
-poetry run towncrier check --compare-with origin/master --staged
+uv run towncrier check --compare-with origin/master --staged
 ```
 
 Release notes are generated from `release/X.Y.Z` branches. Open a PR from `release/X.Y.Z` to `master`, and CI will:
 
 1. set `pyproject.toml` to version `X.Y.Z`
 2. run `towncrier build --yes --version X.Y.Z`
-3. commit the updated `CHANGELOG.md` and consumed fragments back to the release branch
+3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
 
-After the release PR is merged, merge `master` back into `develop` so the generated changelog and fragment deletions return to the integration branch.
+In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](.github/workflows/release-changelog.yml).
+
+After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
 
 ## Author
 
 - Antonio Mariani (antonio.mariani@cmcc.it)
 
 ## Contributing
+
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
 
 ## Contact
+
 For any questions or suggestions, please open an issue on the project's GitHub repository.

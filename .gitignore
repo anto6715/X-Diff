@@ -12,9 +12,6 @@ dist/
 coverage.xml
 
 
-# files
-poetry.lock
-
 # extensions
 *.txt
 *.nc

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nccompare.utils.regex import common_pattern_exists, find_file_matches
+from xdiff.utils.regex import common_pattern_exists, find_file_matches
 
 
 def test_common_pattern_exists_returns_false_when_pattern_is_none():
@@ -20,9 +20,7 @@ def test_find_file_matches_matches_on_common_pattern():
     reference = Path("reference/my-simu_19820101_grid_T.nc")
     comparison = Path("comparison/another-exp_19820101_grid_T.nc")
 
-    matches = find_file_matches(
-        [reference], [comparison], r"\d{8}_grid_T\.nc"
-    )
+    matches = find_file_matches([reference], [comparison], r"\d{8}_grid_T\.nc")
 
     assert matches == {reference: [comparison]}
 

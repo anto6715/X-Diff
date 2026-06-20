@@ -1,21 +1,46 @@
-[tool.poetry]
-name = "ncCompare"
-version = "0.2.6"
-description = "netCDF Comparison Tool"
-authors = ["Antonio Mariani <antonio.mariani@cmcc.it>"]
+[project]
+name = "xdiffly"
+version = "0.3.0"
+description = "X-Diff: a general-purpose tool for exploring differences between datasets (netCDF today, more targets to come)"
+authors = [
+    {name = "Antonio Mariani", email = "antonio.mariani@cmcc.it"}
+]
 readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "xarray>=2024.6.0,<2025.0.0",
+    "pandas>=2.2.2,<3.0.0",
+    "netcdf4>=1.7.1,<2.0.0",
+    "rich>=13.7.1,<14.0.0",
+    "click>=8.3.1,<9.0.0",
+    "dask>=2024.6.0,<2025.0.0",
+    "distributed>=2024.6.0,<2025.0.0",
+    "bokeh>=3.1.0,<4.0.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-xarray = "^2024.6.0"
-pandas = "^2.2.2"
-netcdf4 = "^1.7.1"
-rich = "^13.7.1"
+[project.urls]
+Homepage = "https://github.com/anto6715/X-Diff"
+Repository = "https://github.com/anto6715/X-Diff"
+Issues = "https://github.com/anto6715/X-Diff/issues"
+Changelog = "https://github.com/anto6715/X-Diff/blob/master/CHANGES.md"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.0"
-pytest-cov = "^5.0"
-towncrier = "^25.8"
+[project.scripts]
+xdiff = "xdiff.management:start_from_command_line_interface"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9.0.0",
+    "pytest-cov>=5.0,<6.0.0",
+    "towncrier>=25.8,<26.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.5,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "xdiff"
+module-root = ""
 
 [tool.pytest.ini_options]
 filterwarnings = [
@@ -23,17 +48,22 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["nccompare"]
+source = ["xdiff"]
 
 [tool.coverage.report]
 show_missing = true
 
 [tool.towncrier]
-package = "nccompare"
-filename = "CHANGELOG.md"
-directory = "newsfragments"
+directory = "changes.d"
+name = "X-Diff"
+package = "xdiff"
+filename = "CHANGES.md"
 start_string = "<!-- towncrier release notes start -->\n"
-title_format = "## {version} ({project_date})"
+title_format = "## __[xdiff-{version}](https://github.com/anto6715/X-Diff/tree/{version}) - {project_date}__"
+issue_format = "[#{issue}](https://github.com/anto6715/X-Diff/pull/{issue})"
+underlines = ["", "", ""]
+template = "changes.d/changelog_template.jinja"
+changelog_format = "markdown"
 
 [[tool.towncrier.type]]
 directory = "feature"
@@ -54,12 +84,3 @@ showcontent = true
 directory = "misc"
 name = "Miscellaneous"
 showcontent = true
-
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-
-[tool.poetry.scripts]
-ncpare = "nccompare.management:start_from_command_line_interface"
