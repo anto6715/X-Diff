@@ -21,7 +21,7 @@ def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
         return value
 
     if value.suffix.lower() != ".nc":
-        raise click.BadParameter("only .nc files are supported by the ncfiles command")
+        raise click.BadParameter("only .nc files are supported by the files command")
 
     return value
 
@@ -106,7 +106,7 @@ def _execution_options(command):
     invoke_without_command=True,
 )
 @click.version_option(
-    version=importlib.metadata.version("xdiff"),
+    version=importlib.metadata.version("x-diff"),
     prog_name="xdiff",
 )
 @click.pass_context
@@ -117,9 +117,9 @@ def cli(ctx: click.Context) -> None:
 
 
 #
-# xdiff ncdirs
+# xdiff dirs
 #
-@cli.command("ncdirs")
+@cli.command("dirs")
 @click.argument(
     "reference_path",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
@@ -189,9 +189,9 @@ def compare_directories(
 
 
 #
-# xdiff ncfiles
+# xdiff files
 #
-@cli.command("ncfiles")
+@cli.command("files")
 @click.argument(
     "reference_path",
     type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),

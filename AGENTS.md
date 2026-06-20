@@ -44,8 +44,8 @@ Root files `pyproject.toml`, `uv.lock`, and `README.md` define packaging and use
 The installed script is `xdiff` (defined in `pyproject.toml` under `[project.scripts]`).
 
 ```
-xdiff ncdirs <REFERENCE_PATH> <COMPARISON_PATH> [OPTIONS]   # compare two directories
-xdiff ncfiles <REFERENCE.nc> <COMPARISON.nc> [OPTIONS]      # compare two files directly
+xdiff dirs <REFERENCE_PATH> <COMPARISON_PATH> [OPTIONS]   # compare two directories
+xdiff files <REFERENCE.nc> <COMPARISON.nc> [OPTIONS]      # compare two files directly
 ```
 
 Key options shared by both subcommands:
@@ -70,7 +70,7 @@ Use `uv` for all local setup and execution:
 
 - `uv sync`: create the virtual environment and install runtime dependencies.
 - `uv sync --group dev`: install runtime + dev dependencies (pytest, pytest-cov, towncrier).
-- `uv run xdiff ncdirs a b`: run the CLI against the bundled sample folders.
+- `uv run xdiff dirs a b`: run the CLI against the bundled sample folders.
 - `uv run xdiff --help`: verify argument parsing and exposed options.
 - `uv build`: create wheel and sdist artifacts in `dist/`.
 - `uv run python -m compileall xdiff`: quick syntax check before opening a PR.

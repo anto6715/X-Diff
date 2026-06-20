@@ -36,11 +36,13 @@ uv run xdiff --help
 
 ### Install globally with uv tool
 
+The package is published on PyPI as `x-diff`; it installs the `xdiff` command.
+
 ```shell
-uv tool install --python 3.13 xdiff
+uv tool install --python 3.13 x-diff
 ```
 
-`uv tool install` installs `xdiff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`.
+`uv tool install` installs `x-diff` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
 
 ## Usage
 
@@ -56,8 +58,8 @@ Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  ncdirs   Compare two directories of netCDF files.
-  ncfiles  Compare two netCDF files directly, even if their filenames differ.
+  dirs   Compare two directories of netCDF files.
+  files  Compare two netCDF files directly, even if their filenames differ.
 
 ```
 
@@ -66,7 +68,7 @@ Commands:
 It is possible to choose which parameter to compare:
 
 ```shell
-uv run xdiff ncdirs folder1 folder2 -v votemper -v vosaline
+uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/ncCompare/raw/master/docs/variables.png)
@@ -77,7 +79,7 @@ By default **xdiff** iterates over all files in **folder1** and expects to find 
 it is possible to select only a subset of input files. For example:
 
 ```shell
-uv run xdiff ncdirs folder1 folder2 -f "*_grid_T.nc"
+uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 ```
 
 ### Compare files with different filenames
@@ -85,7 +87,7 @@ uv run xdiff ncdirs folder1 folder2 -f "*_grid_T.nc"
 It is possible to compare two files with different filenames directly:
 
 ```shell
-uv run xdiff ncfiles a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
+uv run xdiff files a/my-simu_19820101_grid_T.nc b/another-exp_19820101_grid_T.nc
 ```
 
 For directory comparisons, files with different names can still be matched if they share a common substring.
@@ -97,7 +99,7 @@ For example, given:
 Pass the common part as a regex pattern:
 
 ```shell
-uv run xdiff ncdirs folder1 folder2 --common-pattern "\d{8}"
+uv run xdiff dirs folder1 folder2 --common-pattern "\d{8}"
 ```
 
 The pattern is matched against both filenames using `re.findall`. Two files are considered a pair when the

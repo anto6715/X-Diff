@@ -18,8 +18,8 @@ def test_root_help_lists_subcommands():
     result = runner.invoke(cli, ["--help"])
 
     assert result.exit_code == 0
-    assert "ncdirs" in result.output
-    assert "ncfiles" in result.output
+    assert "dirs" in result.output
+    assert "files" in result.output
 
 
 def test_root_command_without_subcommand_shows_help():
@@ -52,7 +52,7 @@ def test_dirs_command_builds_directory_request(monkeypatch):
         result = runner.invoke(
             cli,
             [
-                "ncdirs",
+                "dirs",
                 str(ref_dir),
                 str(cmp_dir),
                 "--filter",
@@ -103,7 +103,7 @@ def test_files_command_builds_file_request_for_different_filenames(monkeypatch):
         result = runner.invoke(
             cli,
             [
-                "ncfiles",
+                "files",
                 str(ref_file),
                 str(cmp_file),
                 "-v",
@@ -136,7 +136,7 @@ def test_files_command_rejects_non_netcdf_inputs():
         ref_file.write_text("placeholder")
         cmp_file.write_text("placeholder")
 
-        result = runner.invoke(cli, ["ncfiles", str(ref_file), str(cmp_file)])
+        result = runner.invoke(cli, ["files", str(ref_file), str(cmp_file)])
 
     assert result.exit_code != 0
     assert "only .nc files are supported" in result.output
@@ -163,7 +163,7 @@ def test_dirs_command_accepts_dask_files_mode(monkeypatch):
         result = runner.invoke(
             cli,
             [
-                "ncdirs",
+                "dirs",
                 str(ref_dir),
                 str(cmp_dir),
                 "--execution-mode",
@@ -191,7 +191,7 @@ def test_dirs_command_rejects_parallel_mode_without_dask_backend():
         result = runner.invoke(
             cli,
             [
-                "ncdirs",
+                "dirs",
                 str(ref_dir),
                 str(cmp_dir),
                 "--execution-mode",
@@ -215,7 +215,7 @@ def test_files_command_rejects_removed_arrays_mode():
         result = runner.invoke(
             cli,
             [
-                "ncfiles",
+                "files",
                 str(ref_file),
                 str(cmp_file),
                 "--execution-mode",
@@ -248,7 +248,7 @@ def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):
         result = runner.invoke(
             cli,
             [
-                "ncdirs",
+                "dirs",
                 str(ref_dir),
                 str(cmp_dir),
             ],
@@ -291,7 +291,7 @@ def test_dirs_command_builds_progress_reporter(monkeypatch):
         ref_dir.mkdir()
         cmp_dir.mkdir()
 
-        result = runner.invoke(cli, ["ncdirs", str(ref_dir), str(cmp_dir)])
+        result = runner.invoke(cli, ["dirs", str(ref_dir), str(cmp_dir)])
 
     assert result.exit_code == 0
     assert captured["disabled"] is False
@@ -327,7 +327,7 @@ def test_dirs_command_supports_no_progress(monkeypatch):
         ref_dir.mkdir()
         cmp_dir.mkdir()
 
-        result = runner.invoke(cli, ["ncdirs", str(ref_dir), str(cmp_dir), "--no-progress"])
+        result = runner.invoke(cli, ["dirs", str(ref_dir), str(cmp_dir), "--no-progress"])
 
     assert result.exit_code == 0
     assert captured["disabled"] is True

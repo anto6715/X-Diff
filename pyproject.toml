@@ -1,7 +1,7 @@
 [project]
-name = "xdiff"
+name = "x-diff"
 version = "0.2.6"
-description = "netCDF Comparison Tool"
+description = "X-Diff: a general-purpose tool for exploring differences between datasets (netCDF today, more targets to come)"
 authors = [
     {name = "Antonio Mariani", email = "antonio.mariani@cmcc.it"}
 ]
