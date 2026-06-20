@@ -18,6 +18,12 @@ dependencies = [
     "bokeh>=3.1.0,<4.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/anto6715/X-Diff"
+Repository = "https://github.com/anto6715/X-Diff"
+Issues = "https://github.com/anto6715/X-Diff/issues"
+Changelog = "https://github.com/anto6715/X-Diff/blob/master/CHANGES.md"
+
 [project.scripts]
 xdiff = "xdiff.management:start_from_command_line_interface"
 
