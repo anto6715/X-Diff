@@ -218,12 +218,14 @@ def is_time_coordinate_variable(variable: str, ref_da: xr.DataArray, cmp_da: xr.
 
 def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> None:
     if ref_da.dims != cmp_da.dims:
-        raise ValueError(f"Dimension mismatch: '{ref_da.dims}' - '{cmp_da.dims}'")
+        logger.debug(
+            "Dimension name mismatch: '%s' - '%s'",
+            ref_da.dims,
+            cmp_da.dims,
+        )
 
-    reference_sizes = tuple(ref_da.sizes[dimension] for dimension in ref_da.dims)
-    comparison_sizes = tuple(cmp_da.sizes[dimension] for dimension in cmp_da.dims)
-    if reference_sizes != comparison_sizes:
-        raise ValueError(f"Dimension size mismatch: '{reference_sizes}' - '{comparison_sizes}'")
+    if ref_da.shape != cmp_da.shape:
+        raise ValueError(f"Dimension size mismatch: '{ref_da.shape}' - '{cmp_da.shape}'")
 
     if np.dtype(ref_da.dtype) != np.dtype(cmp_da.dtype):
         raise ValueError(f"Data type mismatch: '{ref_da.dtype}' - '{cmp_da.dtype}'")
