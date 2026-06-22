@@ -6,6 +6,12 @@ This repository uses `towncrier` to collect unreleased changes under `changes.d/
 
 <!-- towncrier release notes start -->
 
+## __[xdiff-0.3.1](https://github.com/anto6715/X-Diff/tree/0.3.1) - 2026-06-22__
+
+### 🔧 Bugfixes
+
+[#18](https://github.com/anto6715/X-Diff/pull/18) - Comparing netCDF variables no longer fails when dimensions share the same shape but have different names; the name difference is logged at debug instead. Only a true shape (size) mismatch now raises.
+
 ## __[xdiff-0.3.0](https://github.com/anto6715/X-Diff/tree/0.3.0) - 2026-06-20__
 
 ### 🚀 Features
