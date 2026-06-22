@@ -43,7 +43,14 @@ jobs:
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build changelog and bump package version
+        shell: bash
         run: |
+          shopt -s nullglob
+          fragments=(changes.d/*.feature.md changes.d/*.bugfix.md changes.d/*.doc.md changes.d/*.misc.md)
+          if [[ ${#fragments[@]} -eq 0 ]]; then
+            echo "No changelog fragments left to build; release already applied. Skipping."
+            exit 0
+          fi
           sed -i "s/^version = .*/version = \"$RELEASE_VERSION\"/" pyproject.toml
           uv run towncrier build --yes --version "$RELEASE_VERSION"
 
