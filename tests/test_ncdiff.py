@@ -122,20 +122,23 @@ def test_compare_variables_returns_zeroed_result_for_identical_fields():
     )
 
 
-def test_compare_variables_raises_on_dimension_mismatch():
+def test_compare_variables_raises_on_dimension_size_mismatch():
     reference = make_data_array([1.0, 2.0], dims=("x",))
     comparison = make_data_array([[1.0, 2.0]], dims=("x", "y"))
 
-    with pytest.raises(ValueError, match="Dimension mismatch"):
+    with pytest.raises(ValueError, match="Dimension size mismatch"):
         compare_variables(reference, comparison, "temp", last_time_step=False)
 
 
-def test_compare_variables_rejects_dimension_name_mismatch_even_when_shape_matches():
+def test_compare_variables_allows_dimension_name_mismatch_when_shape_matches():
     reference = make_data_array([1.0, 2.0], dims=("x",))
-    comparison = make_data_array([1.0, 2.0], dims=("y",))
+    comparison = make_data_array([3.0, 2.0], dims=("y",))
 
-    with pytest.raises(ValueError, match="Dimension mismatch"):
-        compare_variables(reference, comparison, "temp", last_time_step=False)
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.min_diff == -2.0
+    assert result.max_diff == 0.0
+    assert result.variable == "temp"
 
 
 def test_compare_variables_allows_coordinate_value_mismatches():
