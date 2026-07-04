@@ -85,6 +85,16 @@ To compare variables that are named differently between the two inputs, use `REF
 uv run xdiff files reference.nc comparison.nc -v thetao=votemper -v lon=longitude
 ```
 
+### Restrict to a lon/lat box
+
+When two inputs share the same grid but cover different extents (e.g. a global file vs a regional subset), crop both to a common `--bbox LON_MIN LON_MAX LAT_MIN LAT_MAX` before comparing. Both 1-D (rectilinear) and 2-D (curvilinear, e.g. NEMO `nav_lon`/`nav_lat`) coordinates are supported:
+
+```shell
+uv run xdiff files global.nc regional.nc -v thetao --bbox -6 36 30 46
+```
+
+Inputs on *different* grids or resolutions need regridding first — that is out of scope for `--bbox`.
+
 ### Filter files
 
 By default **xdiff** iterates over all files in **folder1** and expects to find them in **folder2**. Using filters,

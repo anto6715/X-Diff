@@ -14,7 +14,7 @@ import numpy as np
 import xdiff.conf as settings
 from xdiff.comparators.base import ArtifactComparator
 from xdiff.exceptions import LastTimestepTimeCheckException
-from xdiff.model import CompareResult
+from xdiff.model import BoundingBox, CompareResult
 from xdiff.model.artifact import ArtifactKind
 from xdiff.model.comparison import Comparison
 from xdiff.model.match import ArtifactMatch
@@ -59,6 +59,7 @@ class NetcdfComparator(ArtifactComparator):
                 match.comparison.path,
                 request.variables,
                 last_time_step=request.last_time_step,
+                bbox=request.bbox,
             )
         )
         return comparison
@@ -70,9 +71,13 @@ def compare_files(
     variables: tuple[str, ...] | list[str] | object | None,
     *,
     last_time_step: bool,
+    bbox: BoundingBox | None = None,
 ) -> list[CompareResult]:
     xr = load_xarray()
     with xr.open_dataset(file1) as dataset1, xr.open_dataset(file2) as dataset2:
+        if bbox is not None:
+            dataset1 = crop_to_bbox(dataset1, bbox)
+            dataset2 = crop_to_bbox(dataset2, bbox)
         variables_to_compare = get_dataset_variables(dataset1, variables)
         return compare_datasets(
             dataset1,
@@ -80,6 +85,93 @@ def compare_files(
             variables_to_compare,
             last_time_step=last_time_step,
         )
+
+
+# CF/attribute and common-name heuristics for locating horizontal coordinates.
+_LONGITUDE_STANDARD_NAMES = {"longitude"}
+_LATITUDE_STANDARD_NAMES = {"latitude"}
+_LONGITUDE_UNITS = {"degrees_east", "degree_east", "degreese", "degree_e", "degrees_e"}
+_LATITUDE_UNITS = {"degrees_north", "degree_north", "degreesn", "degree_n", "degrees_n"}
+_LONGITUDE_NAMES = ("longitude", "lon", "nav_lon", "glamt")
+_LATITUDE_NAMES = ("latitude", "lat", "nav_lat", "gphit")
+
+
+def locate_horizontal_coords(dataset: xr.Dataset) -> tuple[Any | None, Any | None]:
+    """Return the (longitude, latitude) coordinate names, or None where absent.
+
+    Detection prefers the CF ``standard_name`` attribute, then CF ``units``
+    (degrees_east/north), then a small set of common names (lon/nav_lon, ...).
+    """
+    return (
+        _find_coordinate(dataset, _LONGITUDE_STANDARD_NAMES, _LONGITUDE_UNITS, _LONGITUDE_NAMES),
+        _find_coordinate(dataset, _LATITUDE_STANDARD_NAMES, _LATITUDE_UNITS, _LATITUDE_NAMES),
+    )
+
+
+def _find_coordinate(dataset: xr.Dataset, standard_names: set[str], units: set[str], common_names: tuple[str, ...]):
+    for name, variable in dataset.variables.items():
+        if str(variable.attrs.get("standard_name", "")).lower() in standard_names:
+            return name
+    for name, variable in dataset.variables.items():
+        if str(variable.attrs.get("units", "")).lower() in units:
+            return name
+    for name in common_names:
+        if name in dataset.variables:
+            return name
+    return None
+
+
+def crop_to_bbox(dataset: xr.Dataset, bbox: BoundingBox) -> xr.Dataset:
+    """Crop a dataset to a lon/lat box, dispatching on 1-D vs 2-D coordinates.
+
+    Raises ``ValueError`` if lon/lat coordinates cannot be located or if the box
+    selects no data (outside the dataset's extent), so a mis-specified box fails
+    loudly rather than yielding empty, trivially-identical fields.
+    """
+    longitude_name, latitude_name = locate_horizontal_coords(dataset)
+    if longitude_name is None or latitude_name is None:
+        raise ValueError(f"Cannot apply --bbox ({bbox}): no longitude/latitude coordinates found in the dataset.")
+
+    longitude = dataset[longitude_name]
+    latitude = dataset[latitude_name]
+    if longitude.ndim == 1 and latitude.ndim == 1:
+        cropped = _crop_rectilinear(dataset, longitude_name, latitude_name, bbox)
+    else:
+        cropped = _crop_curvilinear(dataset, longitude, latitude, bbox)
+
+    if cropped[longitude_name].size == 0 or cropped[latitude_name].size == 0:
+        raise ValueError(f"--bbox ({bbox}) selects no data; the box is outside the dataset extent.")
+
+    logger.info("Cropped to bbox %s", bbox)
+    return cropped
+
+
+def _crop_rectilinear(dataset: xr.Dataset, longitude_name, latitude_name, bbox: BoundingBox) -> xr.Dataset:
+    """Crop a 1-D (rectilinear) grid with label-based selection, honouring axis order."""
+    return dataset.sel(
+        {
+            longitude_name: _oriented_slice(dataset[longitude_name], bbox.lon_min, bbox.lon_max),
+            latitude_name: _oriented_slice(dataset[latitude_name], bbox.lat_min, bbox.lat_max),
+        }
+    )
+
+
+def _oriented_slice(coordinate: xr.DataArray, low: float, high: float) -> slice:
+    values = coordinate.values
+    if values.size >= 2 and values[0] > values[-1]:
+        return slice(high, low)  # descending axis
+    return slice(low, high)
+
+
+def _crop_curvilinear(dataset: xr.Dataset, longitude: xr.DataArray, latitude: xr.DataArray, bbox: BoundingBox):
+    """Crop a 2-D (curvilinear) grid, e.g. NEMO nav_lon/nav_lat, by masking and dropping."""
+    inside_box = (
+        (longitude >= bbox.lon_min)
+        & (longitude <= bbox.lon_max)
+        & (latitude >= bbox.lat_min)
+        & (latitude <= bbox.lat_max)
+    )
+    return dataset.where(inside_box, drop=True)
 
 
 def _as_variable_pair(item: str | tuple[str, str]) -> tuple[str, str]:

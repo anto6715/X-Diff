@@ -10,13 +10,15 @@ from xdiff.comparators.netcdf import (
     compare_files,
     compare_variables,
     compute_relative_error,
+    crop_to_bbox,
     find_time_dims_name,
     get_dataset_variables,
+    locate_horizontal_coords,
     select_last_time_step,
 )
 from xdiff.compare import compare
 from xdiff.exceptions import LastTimestepTimeCheckException
-from xdiff.model import CompareResult
+from xdiff.model import BoundingBox, CompareResult
 
 
 def make_data_array(values, dims=("x",), dtype=None):
@@ -291,6 +293,79 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     assert len(results) == 1
     assert results[0].variable == "temp"
     assert results[0].relative_error == 0.0
+
+
+def _rectilinear_dataset(lon_values, lat_values):
+    longitudes, latitudes = np.meshgrid(lon_values, lat_values)
+    return xr.Dataset(
+        {"sst": (("lat", "lon"), longitudes + latitudes)},
+        coords={
+            "lon": ("lon", lon_values, {"units": "degrees_east"}),
+            "lat": ("lat", lat_values, {"units": "degrees_north"}),
+        },
+    )
+
+
+def test_locate_horizontal_coords_prefers_standard_name():
+    dataset = xr.Dataset(
+        coords={
+            "xc": ("xc", [1.0, 2.0], {"standard_name": "longitude"}),
+            "yc": ("yc", [1.0, 2.0], {"standard_name": "latitude"}),
+        }
+    )
+    assert locate_horizontal_coords(dataset) == ("xc", "yc")
+
+
+def test_locate_horizontal_coords_falls_back_to_common_names():
+    dataset = xr.Dataset(coords={"nav_lon": ("x", [1.0, 2.0]), "nav_lat": ("x", [1.0, 2.0])})
+    assert locate_horizontal_coords(dataset) == ("nav_lon", "nav_lat")
+
+
+def test_crop_to_bbox_curvilinear_grid():
+    ys, xs = np.mgrid[0:10, 0:10]
+    dataset = xr.Dataset(
+        {"thetao": (("y", "x"), np.ones((10, 10)))},
+        coords={"nav_lon": (("y", "x"), xs * 1.0), "nav_lat": (("y", "x"), ys * 1.0)},
+    )
+
+    cropped = crop_to_bbox(dataset, BoundingBox(lon_min=2, lon_max=5, lat_min=2, lat_max=5))
+
+    assert dict(cropped.sizes) == {"y": 4, "x": 4}
+
+
+def test_crop_to_bbox_raises_when_box_is_outside_extent():
+    dataset = _rectilinear_dataset(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
+
+    with pytest.raises(ValueError, match="selects no data"):
+        crop_to_bbox(dataset, BoundingBox(lon_min=100, lon_max=110, lat_min=80, lat_max=89))
+
+
+def test_crop_to_bbox_raises_when_coordinates_absent():
+    dataset = xr.Dataset({"v": ("a", [1.0, 2.0, 3.0])})
+
+    with pytest.raises(ValueError, match="no longitude/latitude coordinates"):
+        crop_to_bbox(dataset, BoundingBox(lon_min=-5, lon_max=5, lat_min=-5, lat_max=5))
+
+
+def test_compare_files_bbox_aligns_different_extents_on_the_same_grid(tmp_path):
+    reference = _rectilinear_dataset(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
+    comparison = _rectilinear_dataset(np.arange(-5.0, 16.0), np.arange(-10.0, 11.0))
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+
+    # Same shape but shifted extent: without a box the fields differ...
+    without_box = compare_files(reference_path, comparison_path, ["sst"], last_time_step=False)
+    assert not without_box[0].passed
+
+    # ...cropped to a common window they are identical.
+    with_box = compare_files(
+        reference_path,
+        comparison_path,
+        ["sst"],
+        last_time_step=False,
+        bbox=BoundingBox(lon_min=-5, lon_max=5, lat_min=-5, lat_max=5),
+    )
+    assert with_box[0].passed
 
 
 def test_compare_yields_no_match_comparison():

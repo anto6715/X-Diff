@@ -56,6 +56,7 @@ Key options shared by both subcommands:
 | `--common-pattern` | Regex identifying a common substring between filenames (e.g. `\d{8}`) |
 | `-v / --variables` | Variable(s) to compare; repeatable. `NAME` compares the same name on both sides; `REF=CMP` maps differently-named variables (e.g. `thetao=votemper`) |
 | `--last-time-step` | Compare only the last time step |
+| `--bbox LON_MIN LON_MAX LAT_MIN LAT_MAX` | Crop both inputs to a lon/lat box before comparing (same-grid inputs of different extent; supports 1-D and 2-D lon/lat coords) |
 | `-w / --dask-workers N` | Run in parallel on a local Dask cluster with N workers (enables Dask) |
 | `--dask-scheduler` | Attach to an external Dask scheduler by address |
 | `--dask-scheduler-file` | Attach to an external Dask scheduler via scheduler file |
