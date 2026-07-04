@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from xdiff.model.bbox import BoundingBox
+
 
 class CompareMode(str, Enum):
     """Supported high-level comparison modes."""
@@ -49,6 +51,7 @@ class CompareRequest:
     # and dims, same name on both sides". Plain -v names normalize to (n, n).
     variables: tuple[tuple[str, str], ...] | None
     last_time_step: bool = False
+    bbox: BoundingBox | None = None
     dask_scheduler: str | None = None
     dask_scheduler_file: Path | None = None
     dask_workers: int | None = None

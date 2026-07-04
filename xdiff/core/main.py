@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import xdiff.conf as settings
 from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
-from xdiff.model import CompareMode, CompareRequest, ComparisonReport
+from xdiff.model import BoundingBox, CompareMode, CompareRequest, ComparisonReport
 
 if TYPE_CHECKING:
     from xdiff.printlib.progress import ProgressReporter
@@ -20,6 +20,7 @@ def execute(
     common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
+    bbox: BoundingBox | tuple[float, float, float, float] | None = None,
     input_mode: CompareMode = CompareMode.DIRECTORIES,
     dask_scheduler: str | None = None,
     dask_scheduler_file: Path | None = None,
@@ -34,6 +35,7 @@ def execute(
         common_pattern=common_pattern,
         variables=variables,
         last_time_step=last_time_step,
+        bbox=bbox,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
@@ -49,6 +51,7 @@ def build_request(
     common_pattern: str | None = settings.DEFAULT_COMMON_PATTERN,
     variables: Iterable[str] | object = settings.DEFAULT_VARIABLES_TO_CHECK,
     last_time_step: bool = False,
+    bbox: BoundingBox | tuple[float, float, float, float] | None = None,
     dask_scheduler: str | None = None,
     dask_scheduler_file: Path | None = None,
     dask_workers: int | None = None,
@@ -62,10 +65,21 @@ def build_request(
         common_pattern=common_pattern,
         variables=normalize_variables(variables),
         last_time_step=last_time_step,
+        bbox=normalize_bbox(bbox),
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
     )
+
+
+def normalize_bbox(
+    bbox: BoundingBox | tuple[float, float, float, float] | None,
+) -> BoundingBox | None:
+    """Coerce a 4-tuple of ``(lon_min, lon_max, lat_min, lat_max)`` into a BoundingBox."""
+    if bbox is None or isinstance(bbox, BoundingBox):
+        return bbox
+    lon_min, lon_max, lat_min, lat_max = bbox
+    return BoundingBox(lon_min=lon_min, lon_max=lon_max, lat_min=lat_min, lat_max=lat_max)
 
 
 def normalize_variables(variables: Iterable[str] | object) -> tuple[tuple[str, str], ...] | None:

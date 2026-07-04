@@ -82,6 +82,20 @@ def _execution_options(command):
     return command
 
 
+def _bbox_option(command):
+    return click.option(
+        "--bbox",
+        nargs=4,
+        type=float,
+        default=None,
+        metavar="LON_MIN LON_MAX LAT_MIN LAT_MAX",
+        help=(
+            "Crop both inputs to a lon/lat box before comparing (for same-grid inputs "
+            "of different extent). Example: --bbox -6 36 30 46."
+        ),
+    )(command)
+
+
 #
 # xdiff entry point
 #
@@ -143,6 +157,7 @@ def cli(ctx: click.Context) -> None:
     default=False,
     help="If enabled, compare only the last time step available in each file.",
 )
+@_bbox_option
 @_execution_options
 def compare_directories(
     reference_path: Path,
@@ -151,6 +166,7 @@ def compare_directories(
     common_pattern: str | None,
     variables: tuple[str, ...],
     last_time_step: bool,
+    bbox: tuple[float, float, float, float] | None,
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
@@ -167,6 +183,7 @@ def compare_directories(
         common_pattern=common_pattern,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
+        bbox=bbox,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
@@ -202,12 +219,14 @@ def compare_directories(
     default=False,
     help="If enabled, compare only the last time step available in each file.",
 )
+@_bbox_option
 @_execution_options
 def compare_files(
     reference_path: Path,
     comparison_path: Path,
     variables: tuple[str, ...],
     last_time_step: bool,
+    bbox: tuple[float, float, float, float] | None,
     dask_scheduler: str | None,
     dask_scheduler_file: Path | None,
     dask_workers: int | None,
@@ -224,6 +243,7 @@ def compare_files(
         common_pattern=settings.DEFAULT_COMMON_PATTERN,
         variables=variables or settings.DEFAULT_VARIABLES_TO_CHECK,
         last_time_step=last_time_step,
+        bbox=bbox,
         dask_scheduler=dask_scheduler,
         dask_scheduler_file=dask_scheduler_file,
         dask_workers=dask_workers,
