@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from typing import TYPE_CHECKING
 
 from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.exceptions import NoMatchFound, UnsupportedArtifactTypeError
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from xdiff.printlib.progress import ProgressReporter
 
 
-def load_default_comparators() -> list["ArtifactComparator"]:
+def load_default_comparators() -> list[ArtifactComparator]:
     """Build the default comparator registry lazily."""
     from xdiff.comparators import NetcdfComparator
 
@@ -70,13 +71,13 @@ def compare_match(
 class ComparisonService:
     """Coordinate discovery, matching, and comparison for one request."""
 
-    def __init__(self, discovery, matcher, comparators: Iterable["ArtifactComparator"]):
+    def __init__(self, discovery, matcher, comparators: Iterable[ArtifactComparator]):
         self.discovery = discovery
         self.matcher = matcher
         self.comparators = {comparator.artifact_kind: comparator for comparator in comparators}
 
     @classmethod
-    def default(cls) -> "ComparisonService":
+    def default(cls) -> ComparisonService:
         return cls(
             discovery=FileSystemArtifactDiscovery(),
             matcher=DefaultArtifactMatcher(),
@@ -86,7 +87,7 @@ class ComparisonService:
     def run(
         self,
         request: CompareRequest,
-        progress_reporter: "ProgressReporter | None" = None,
+        progress_reporter: ProgressReporter | None = None,
     ) -> ComparisonReport:
         from xdiff.printlib.progress import NullProgressReporter
 
@@ -217,8 +218,6 @@ class ComparisonService:
                     on_comparison_complete(comparison)
 
         return [comparison for comparison in comparisons if comparison is not None]
-
-
 
     def _can_parallelize_match(self, match: ArtifactMatch) -> bool:
         return (

@@ -5,7 +5,6 @@ import pytest
 import xarray as xr
 
 import xdiff.conf as settings
-
 from xdiff.comparators.netcdf import (
     compare_datasets,
     compare_files,

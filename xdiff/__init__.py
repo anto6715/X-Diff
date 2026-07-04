@@ -15,8 +15,7 @@ def validate_runtime() -> None:
         return
 
     raise RuntimeError(
-        "xdiff supports Python 3.10 through 3.13. "
-        f"The current interpreter is Python {version[0]}.{version[1]}."
+        f"xdiff supports Python 3.10 through 3.13. The current interpreter is Python {version[0]}.{version[1]}."
     )
 
 

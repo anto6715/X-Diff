@@ -4,17 +4,25 @@
 
 ## Install
 
-Dask dependencies are part of the default `xdiff` environment. Install the project with uv:
+Dask is an optional backend and is **not** part of the base install. Install it via the `dask` extra. For a global CLI install with uv:
 
 ```shell
-uv sync
+uv tool install "xdiffly[dask]"
 ```
 
-For development, include the dev dependency group:
+From a source checkout, sync the extra with uv:
+
+```shell
+uv sync --extra dask
+```
+
+The dev dependency group already includes the `dask` extra, so it is available in the development environment:
 
 ```shell
 uv sync --group dev
 ```
+
+Without these packages the CLI still runs serially; supplying a Dask backend option raises a clear error telling you to install the extra.
 
 ## Enabling Dask
 

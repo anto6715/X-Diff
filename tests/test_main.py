@@ -79,4 +79,3 @@ def test_build_request_enables_dask_from_worker_option():
 
     assert request.uses_dask is True
     assert request.dask_workers == 8
-

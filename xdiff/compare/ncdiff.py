@@ -1,7 +1,7 @@
 """NetCDF comparison orchestration for matched file pairs."""
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from xdiff.exceptions import NoMatchFound
 from xdiff.model.comparison import Comparison

@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import sys
 import time
-
 from typing import TextIO
 
 from rich.console import Console
@@ -28,7 +27,7 @@ from xdiff.model.request import CompareRequest
 class ProgressReporter:
     """Minimal lifecycle for CLI progress reporting."""
 
-    def __enter__(self) -> "ProgressReporter":
+    def __enter__(self) -> ProgressReporter:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -195,8 +194,7 @@ class TextProgressReporter(ProgressReporter):
         remaining = max(total_matches - completed, 0)
         percentage = int((completed / total_matches) * 100)
         self._write(
-            f"Progress: {completed}/{total_matches} comparison tasks completed "
-            f"({percentage}%, {remaining} left)"
+            f"Progress: {completed}/{total_matches} comparison tasks completed ({percentage}%, {remaining} left)"
         )
         self._last_reported = completed
 

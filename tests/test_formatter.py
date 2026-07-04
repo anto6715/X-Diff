@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from xdiff.model.compare_result import CompareResult
 from xdiff.model.artifact import Artifact
+from xdiff.model.compare_result import CompareResult
 from xdiff.model.comparison import Comparison
 from xdiff.model.report import ComparisonReport
 from xdiff.printlib import formatter
