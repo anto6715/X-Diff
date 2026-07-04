@@ -82,30 +82,40 @@ def compare_files(
         )
 
 
+def _as_variable_pair(item: str | tuple[str, str]) -> tuple[str, str]:
+    """Coerce a variable spec to a (reference_name, comparison_name) pair."""
+    if isinstance(item, str):
+        return (item, item)
+    reference_name, comparison_name = item  # unpacking also asserts a 2-element pair
+    return reference_name, comparison_name
+
+
 def compare_datasets(
     reference: xr.Dataset,
     comparison: xr.Dataset,
-    variables: list[str],
+    variables: list[str] | list[tuple[str, str]],
     *,
     last_time_step: bool,
 ) -> list[CompareResult]:
     results: list[CompareResult] = []
 
-    for variable in variables:
-        logger.info("Comparing %s", variable)
+    for item in variables:
+        reference_name, comparison_name = _as_variable_pair(item)
+        label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+        logger.info("Comparing %s", label)
         try:
-            reference_field = reference[variable]
-            comparison_field = comparison[variable]
+            reference_field = reference[reference_name]
+            comparison_field = comparison[comparison_name]
             results.append(
                 compare_variables(
                     reference_field,
                     comparison_field,
-                    variable,
+                    label,
                     last_time_step=last_time_step,
                 )
             )
         except Exception as exc:
-            results.append(CompareResult(variable=variable, description=str(exc)))
+            results.append(CompareResult(variable=label, description=str(exc)))
 
     return results
 
@@ -118,7 +128,7 @@ def compare_variables(
     last_time_step: bool,
 ) -> CompareResult:
     if last_time_step:
-        if is_time_coordinate_variable(variable, ref_da, cmp_da):
+        if is_time_coordinate_variable(ref_da, cmp_da):
             raise LastTimestepTimeCheckException("Can't compare time if last time step is enabled")
         ref_da = select_last_time_step(ref_da)
         cmp_da = select_last_time_step(cmp_da)
@@ -235,20 +245,19 @@ def is_time_dtype(dtype) -> bool:
     return np.issubdtype(normalized_dtype, np.datetime64) or np.issubdtype(normalized_dtype, np.timedelta64)
 
 
-def is_time_coordinate_variable(variable: str, ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
-    time_dimension = find_time_dims_name(ref_da.dims)
-    comparison_time_dimension = find_time_dims_name(cmp_da.dims)
+def is_time_coordinate_variable(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
+    """True when both sides are a 1-D datetime time axis (the time coordinate).
 
-    if time_dimension != comparison_time_dimension or time_dimension is None:
-        return False
+    Detection is by dimension shape and dtype rather than by name, so it also
+    holds for a mapped pair whose time axes are named differently (e.g. a
+    ``time=time2`` mapping), where a name-based check would miss it.
+    """
+    return _is_time_axis(ref_da) and _is_time_axis(cmp_da)
 
-    return (
-        variable == time_dimension
-        and ref_da.dims == (time_dimension,)
-        and cmp_da.dims == (time_dimension,)
-        and is_time_dtype(ref_da.dtype)
-        and is_time_dtype(cmp_da.dtype)
-    )
+
+def _is_time_axis(da: xr.DataArray) -> bool:
+    time_dimension = find_time_dims_name(da.dims)
+    return time_dimension is not None and da.dims == (time_dimension,) and is_time_dtype(da.dtype)
 
 
 def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> None:
@@ -300,24 +309,32 @@ def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> No
             logger.debug("Coordinate values mismatch for '%s'", coordinate_name)
 
 
-def get_dataset_variables(dataset: xr.Dataset, variables: tuple[str, ...] | list[str] | object | None) -> list[str]:
-    """Extract comparable variables and dimensions from a dataset."""
-    selected_variables: list[str] = []
+def get_dataset_variables(
+    dataset: xr.Dataset,
+    variables: tuple[tuple[str, str], ...] | list | object | None,
+) -> list[tuple[str, str]]:
+    """Select comparable (reference_name, comparison_name) variable pairs.
 
+    Filtering (presence + non-string dtype) is done against the reference
+    dataset; the comparison-side name is validated later in ``compare_datasets``
+    against the comparison dataset. When no selection is given, defaults to every
+    data variable and dimension, compared under the same name on both sides.
+    """
     if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
-        variables_to_check = list(dataset.data_vars) + list(dataset.dims)
+        pairs = [(name, name) for name in list(dataset.data_vars) + list(dataset.dims)]
     else:
-        variables_to_check = list(variables)
+        pairs = [_as_variable_pair(item) for item in variables]
 
-    for variable in variables_to_check:
-        if variable not in dataset:
+    selected_variables: list[tuple[str, str]] = []
+    for reference_name, comparison_name in pairs:
+        if reference_name not in dataset:
             continue
 
-        dtype_kind = dataset[variable].dtype.kind
+        dtype_kind = dataset[reference_name].dtype.kind
         if dtype_kind in ("U", "S", "O", "a"):
-            logger.debug("Skipping variable %s due to datatype %s", variable, dtype_kind)
+            logger.debug("Skipping variable %s due to datatype %s", reference_name, dtype_kind)
             continue
 
-        selected_variables.append(variable)
+        selected_variables.append((reference_name, comparison_name))
 
     return selected_variables

@@ -41,7 +41,7 @@ def test_get_dataset_variables_defaults_skip_string_like_values():
 
     variables = get_dataset_variables(dataset, settings.DEFAULT_VARIABLES_TO_CHECK)
 
-    assert variables == ["temp", "time"]
+    assert variables == [("temp", "temp"), ("time", "time")]
 
 
 def test_get_dataset_variables_respects_explicit_variable_selection():
@@ -54,7 +54,7 @@ def test_get_dataset_variables_respects_explicit_variable_selection():
 
     variables = get_dataset_variables(dataset, ["label", "temp", "missing"])
 
-    assert variables == ["temp"]
+    assert variables == [("temp", "temp")]
 
 
 def test_find_time_dims_name_returns_single_time_dimension():
@@ -235,6 +235,17 @@ def test_compare_variables_allows_non_time_variables_with_time_in_the_name():
     assert result.passed is True
 
 
+def test_compare_variables_rejects_mapped_time_coordinate_with_last_time_step():
+    # A mapped time axis has differently-named dims on each side; the guard must
+    # still fire (detection is by dtype/shape, not by name).
+    values = ["2024-01-01T00:00:00", "2024-01-02T00:00:00"]
+    reference = make_data_array(values, dims=("time",), dtype="datetime64[ns]")
+    comparison = make_data_array(values, dims=("time_counter",), dtype="datetime64[ns]")
+
+    with pytest.raises(LastTimestepTimeCheckException, match="Can't compare time"):
+        compare_variables(reference, comparison, "time -> time_counter", last_time_step=True)
+
+
 def test_compare_datasets_records_variable_level_errors():
     reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
     comparison = xr.Dataset()
@@ -243,6 +254,29 @@ def test_compare_datasets_records_variable_level_errors():
 
     assert len(results) == 1
     assert results[0].variable == "temp"
+    assert results[0].description != "-"
+
+
+def test_compare_datasets_maps_differently_named_variables():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"votemper": ("x", [1.0, 2.0, 3.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert results[0].passed
+    assert results[0].variable == "thetao -> votemper"
+
+
+def test_compare_datasets_reports_missing_mapped_comparison_variable():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"other": ("x", [1.0, 2.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert not results[0].passed
+    assert results[0].variable == "thetao -> votemper"
     assert results[0].description != "-"
 
 

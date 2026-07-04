@@ -79,6 +79,12 @@ uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 
 ![Variables](https://github.com/anto6715/X-Diff/raw/master/docs/variables.png)
 
+To compare variables that are named differently between the two inputs, use `REF=CMP`:
+
+```shell
+uv run xdiff files reference.nc comparison.nc -v thetao=votemper -v lon=longitude
+```
+
 ### Filter files
 
 By default **xdiff** iterates over all files in **folder1** and expects to find them in **folder2**. Using filters,
