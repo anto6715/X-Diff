@@ -168,6 +168,19 @@ def test_compare_variables_detects_mask_mismatch():
     assert result.mask_equal is False
 
 
+def test_compare_variables_does_not_wrap_around_on_unsigned_integers():
+    # Regression: uint8 subtraction wraps (10 - 12 -> 254), which used to
+    # corrupt the diff metrics. The diff must reflect the true signed values.
+    reference = make_data_array([10, 20, 30], dtype="uint8")
+    comparison = make_data_array([12, 18, 35], dtype="uint8")
+
+    result = compare_variables(reference, comparison, "counts", last_time_step=False)
+
+    assert result.min_diff == -5.0
+    assert result.max_diff == 2.0
+    assert result.relative_error == pytest.approx(2 / 12)
+
+
 def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled():
     reference = make_data_array(
         ["2024-01-01T00:00:00", "2024-01-02T00:00:00"],

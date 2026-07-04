@@ -130,7 +130,15 @@ def compare_variables(
     reference_masked = ref_da.to_masked_array()
     comparison_masked = cmp_da.to_masked_array()
 
-    difference_field = reference_values - comparison_values
+    # Integer dtypes wrap around on subtraction (e.g. uint8: 10 - 12 -> 254),
+    # silently corrupting min/max/relative-error. Promote integer operands to
+    # float before subtracting; float and datetime/timedelta dtypes already
+    # subtract correctly and are left untouched (the time path relies on the
+    # resulting timedelta64).
+    if np.issubdtype(reference_values.dtype, np.integer):
+        difference_field = reference_values.astype(np.float64) - comparison_values.astype(np.float64)
+    else:
+        difference_field = reference_values - comparison_values
 
     if np.isnan(difference_field).all():
         raise AllNaN("All nan values found")
