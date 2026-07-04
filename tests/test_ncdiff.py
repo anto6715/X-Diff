@@ -15,7 +15,7 @@ from xdiff.comparators.netcdf import (
     select_last_time_step,
 )
 from xdiff.compare import compare
-from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
+from xdiff.exceptions import LastTimestepTimeCheckException
 from xdiff.model import CompareResult
 
 
@@ -151,12 +151,38 @@ def test_compare_variables_allows_coordinate_value_mismatches():
     assert result.relative_error == 0.5
 
 
-def test_compare_variables_raises_on_all_nan_values():
+def test_compare_variables_treats_matching_all_nan_fields_as_identical():
     reference = make_data_array([np.nan, np.nan])
     comparison = make_data_array([np.nan, np.nan])
 
-    with pytest.raises(AllNaN, match="All nan values found"):
-        compare_variables(reference, comparison, "temp", last_time_step=False)
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.passed
+    assert result.min_diff == 0.0
+    assert result.max_diff == 0.0
+    assert result.mask_equal is True
+    assert "only NaN" in result.note
+
+
+def test_compare_variables_fails_when_all_nan_but_masks_differ():
+    reference = make_data_array([1.0, np.nan])
+    comparison = make_data_array([np.nan, 2.0])
+
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert not result.passed
+    assert result.mask_equal is False
+    assert "no overlapping valid points" in result.description
+
+
+def test_compare_variables_treats_empty_fields_as_identical():
+    reference = make_data_array([], dtype="float64")
+    comparison = make_data_array([], dtype="float64")
+
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.passed
+    assert "empty" in result.note
 
 
 def test_compare_variables_detects_mask_mismatch():

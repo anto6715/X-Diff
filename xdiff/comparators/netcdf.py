@@ -13,7 +13,7 @@ import numpy as np
 
 import xdiff.conf as settings
 from xdiff.comparators.base import ArtifactComparator
-from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
+from xdiff.exceptions import LastTimestepTimeCheckException
 from xdiff.model import CompareResult
 from xdiff.model.artifact import ArtifactKind
 from xdiff.model.comparison import Comparison
@@ -140,10 +140,40 @@ def compare_variables(
     else:
         difference_field = reference_values - comparison_values
 
-    if np.isnan(difference_field).all():
-        raise AllNaN("All nan values found")
-
     mask_is_equal = np.array_equal(reference_masked.mask, comparison_masked.mask)
+
+    if difference_field.size == 0:
+        # Two empty (zero-size) fields are trivially identical. Guard this before
+        # the all-NaN check below, whose `np.isnan(...).all()` is vacuously True
+        # for an empty array and would otherwise mislabel it as "only NaN".
+        return CompareResult(
+            relative_error=0.0,
+            min_diff=0.0,
+            max_diff=0.0,
+            mask_equal=True,
+            variable=variable,
+            note="Both fields are empty (zero-size); treated as identical.",
+        )
+
+    if np.isnan(difference_field).all():
+        # Every difference is NaN. If both fields are NaN in the same positions
+        # they are identical (a passing result with a note); otherwise their
+        # valid regions do not overlap and the fields genuinely differ, which is
+        # a failure and so carries its reason on `description`, not `note`.
+        if mask_is_equal:
+            return CompareResult(
+                relative_error=0.0,
+                min_diff=0.0,
+                max_diff=0.0,
+                mask_equal=True,
+                variable=variable,
+                note="Both fields contain only NaN values; treated as identical.",
+            )
+        return CompareResult(
+            mask_equal=False,
+            variable=variable,
+            description="All differences are NaN (no overlapping valid points).",
+        )
 
     return CompareResult(
         relative_error=compute_relative_error(difference_field, comparison_values),
