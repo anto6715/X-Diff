@@ -172,7 +172,17 @@ def test_compare_variables_fails_when_all_nan_but_masks_differ():
 
     assert not result.passed
     assert result.mask_equal is False
-    assert "no overlapping valid points" in result.note
+    assert "no overlapping valid points" in result.description
+
+
+def test_compare_variables_treats_empty_fields_as_identical():
+    reference = make_data_array([], dtype="float64")
+    comparison = make_data_array([], dtype="float64")
+
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.passed
+    assert "empty" in result.note
 
 
 def test_compare_variables_detects_mask_mismatch():
