@@ -4,10 +4,10 @@
 
 ## Install
 
-Dask is an optional backend and is **not** part of the base install. Install it via the `dask` extra:
+Dask is an optional backend and is **not** part of the base install. Install it via the `dask` extra. For a global CLI install with uv:
 
 ```shell
-pip install "xdiffly[dask]"
+uv tool install "xdiffly[dask]"
 ```
 
 From a source checkout, sync the extra with uv:

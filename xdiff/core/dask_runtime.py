@@ -110,6 +110,7 @@ def _load_distributed():
     except ImportError as exc:
         raise RuntimeError(
             "Dask support requires the optional 'distributed' package. "
-            "Install it with 'pip install xdiffly[dask]' (or 'uv sync --extra dask') "
+            "Install the 'dask' extra with 'uv tool install \"xdiffly[dask]\"' "
+            "(or 'uv sync --extra dask' from a source checkout) "
             "before using the parallel execution options."
         ) from exc

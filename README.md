@@ -113,7 +113,7 @@ pattern produces the same match in both names — in this case the shared date `
 
 ### Dask file-level execution
 
-`xdiff` defaults to serial execution. Dask-backed file-level execution is opt-in and requires the optional `dask` extra (`pip install "xdiffly[dask]"`). See [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
+`xdiff` defaults to serial execution. Dask-backed file-level execution is opt-in and requires the optional `dask` extra (`uv tool install "xdiffly[dask]"`, or `uv sync --extra dask` from a source checkout). See [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 
