@@ -1,2 +1,0 @@
-class AllNaN(Exception):
-    pass

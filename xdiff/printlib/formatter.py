@@ -25,6 +25,11 @@ def get_result(cr: CompareResult) -> str:
     return FAILED
 
 
+def result_detail(result: CompareResult) -> str:
+    """Prefer an informational note (e.g. an all-NaN identity) over the description."""
+    return result.note or result.description
+
+
 def print_report(report: ComparisonReport) -> None:
     """Render a full report to the console."""
     console = Console()
@@ -75,7 +80,7 @@ def print_comparison(comparison: Comparison, console: Console | None = None) -> 
                 render(c.relative_error),
                 render(c.mask_equal),
                 render(c.variable),
-                render(c.description),
+                render(result_detail(c)),
             )
 
     console.print(table)
@@ -201,8 +206,9 @@ def comparison_failure_details(comparison: Comparison) -> str:
 
 def summarize_failed_result(result: CompareResult) -> str:
     """Return a compact label for one failed variable check."""
-    if result.description not in {"", "-"}:
-        return f"{result.variable} ({result.description})"
+    detail = result_detail(result)
+    if detail not in {"", "-"}:
+        return f"{result.variable} ({detail})"
     return str(result.variable)
 
 

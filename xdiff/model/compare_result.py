@@ -20,6 +20,7 @@ class CompareResult:
     mask_equal: bool = False
     variable: str = ""
     description: str = "-"
+    note: str = ""
 
     @property
     def passed(self) -> bool:
