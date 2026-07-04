@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 import warnings
-
+from collections.abc import Iterable
 from functools import lru_cache
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 import xdiff.conf as settings
-
 from xdiff.comparators.base import ArtifactComparator
 from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
 from xdiff.model import CompareResult
@@ -145,8 +144,6 @@ def compare_variables(
         mask_equal=mask_is_equal,
         variable=variable,
     )
-
-
 
 
 def select_last_time_step(field: xr.DataArray) -> xr.DataArray:

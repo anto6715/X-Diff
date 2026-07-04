@@ -1,10 +1,10 @@
 """Compatibility layer for the application service entrypoint."""
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 import xdiff.conf as settings
-
 from xdiff.core.service import ComparisonService
 from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.model import CompareMode, CompareRequest, ComparisonReport
@@ -72,7 +72,6 @@ def normalize_variables(variables: Iterable[str] | object) -> tuple[str, ...] | 
     if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
         return None
     return tuple(variables)
-
 
 
 def load_files(directory: Path, filter_name: str) -> list[Path]:

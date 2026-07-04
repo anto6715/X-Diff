@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import logging
 import os
-
+from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import import_module
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING
 
 from xdiff.model.request import CompareRequest
 
@@ -66,7 +66,7 @@ def log_local_cluster_address(cluster, client) -> None:
 
 
 @contextmanager
-def client_from_request(request: CompareRequest) -> Iterator["Client"]:
+def client_from_request(request: CompareRequest) -> Iterator[Client]:
     """Attach to an external scheduler or create a local cluster for this request."""
     distributed = _load_distributed()
     cluster = None
@@ -109,6 +109,7 @@ def _load_distributed():
         return import_module("distributed")
     except ImportError as exc:
         raise RuntimeError(
-            "Dask support requires the 'distributed' package. "
-            "Install the project dependencies before using this feature."
+            "Dask support requires the optional 'distributed' package. "
+            "Install it with 'pip install xdiffly[dask]' (or 'uv sync --extra dask') "
+            "before using the parallel execution options."
         ) from exc

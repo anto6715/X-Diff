@@ -22,7 +22,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-`xdiff` currently supports Python 3.10 through 3.13. Create the project-local environment and install dependencies from `uv.lock` with:
+`xdiff` currently supports Python 3.10 through 3.14. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
 uv sync --python 3.13
@@ -43,6 +43,12 @@ uv tool install --python 3.13 xdiffly
 ```
 
 `uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
+
+The base install runs serially and is intentionally lightweight. To enable Dask-backed parallel execution, install the optional `dask` extra:
+
+```shell
+uv tool install --python 3.13 "xdiffly[dask]"
+```
 
 ## Usage
 
@@ -107,7 +113,7 @@ pattern produces the same match in both names — in this case the shared date `
 
 ### Dask file-level execution
 
-`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
+`xdiff` defaults to serial execution. Dask-backed file-level execution is opt-in and requires the optional `dask` extra (`pip install "xdiffly[dask]"`). See [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 
