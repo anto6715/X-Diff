@@ -23,6 +23,7 @@ jobs:
         with:
           version: "0.9.5"
           python-version: "3.10"
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -41,7 +42,24 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
         run: uv run towncrier check --compare-with origin/${{ github.base_ref }}
 
+  # Full matrix at release time (PRs to master and pushes to master); the
+  # endpoints (oldest + newest) on develop PRs, where version breaks surface.
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      python-versions: ${{ steps.pick.outputs.python-versions }}
+    steps:
+      - name: Select Python versions
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.base_ref }}" = "develop" ]; then
+            echo 'python-versions=["3.10", "3.14"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'python-versions=["3.10", "3.11", "3.12", "3.13", "3.14"]' >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: setup-matrix
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ${{ fromJSON(needs.setup-matrix.outputs.python-versions) }}
 
     steps:
       - name: Check out repository
@@ -62,6 +80,7 @@ jobs:
         with:
           version: "0.9.5"
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -70,7 +89,9 @@ jobs:
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage to Codecov
-        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
+        # 3.14 is present in both the trimmed and full matrices, so coverage
+        # uploads exactly once regardless of which set ran.
+        if: ${{ !cancelled() && matrix.python-version == '3.14' }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

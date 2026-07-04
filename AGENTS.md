@@ -113,7 +113,7 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 
 ## CI Workflows
 
-- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs); a `test` job runs `pytest --cov` across a Python 3.10–3.14 matrix and uploads coverage to Codecov (from the 3.13 job).
+- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.10 + 3.14) on develop PRs, the full 3.10–3.14 range on master PRs/pushes. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs.
 - `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, builds the changelog with `towncrier`, and commits the result back to the release branch.
 
 ## Commit & Pull Request Guidelines
