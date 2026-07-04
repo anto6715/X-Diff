@@ -86,8 +86,8 @@ def _as_variable_pair(item: str | tuple[str, str]) -> tuple[str, str]:
     """Coerce a variable spec to a (reference_name, comparison_name) pair."""
     if isinstance(item, str):
         return (item, item)
-    reference_name, comparison_name = item
-    return (reference_name, comparison_name)
+    reference_name, comparison_name = item  # unpacking also asserts a 2-element pair
+    return reference_name, comparison_name
 
 
 def compare_datasets(
@@ -128,7 +128,7 @@ def compare_variables(
     last_time_step: bool,
 ) -> CompareResult:
     if last_time_step:
-        if is_time_coordinate_variable(variable, ref_da, cmp_da):
+        if is_time_coordinate_variable(ref_da, cmp_da):
             raise LastTimestepTimeCheckException("Can't compare time if last time step is enabled")
         ref_da = select_last_time_step(ref_da)
         cmp_da = select_last_time_step(cmp_da)
@@ -245,20 +245,19 @@ def is_time_dtype(dtype) -> bool:
     return np.issubdtype(normalized_dtype, np.datetime64) or np.issubdtype(normalized_dtype, np.timedelta64)
 
 
-def is_time_coordinate_variable(variable: str, ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
-    time_dimension = find_time_dims_name(ref_da.dims)
-    comparison_time_dimension = find_time_dims_name(cmp_da.dims)
+def is_time_coordinate_variable(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
+    """True when both sides are a 1-D datetime time axis (the time coordinate).
 
-    if time_dimension != comparison_time_dimension or time_dimension is None:
-        return False
+    Detection is by dimension shape and dtype rather than by name, so it also
+    holds for a mapped pair whose time axes are named differently (e.g. a
+    ``time=time2`` mapping), where a name-based check would miss it.
+    """
+    return _is_time_axis(ref_da) and _is_time_axis(cmp_da)
 
-    return (
-        variable == time_dimension
-        and ref_da.dims == (time_dimension,)
-        and cmp_da.dims == (time_dimension,)
-        and is_time_dtype(ref_da.dtype)
-        and is_time_dtype(cmp_da.dtype)
-    )
+
+def _is_time_axis(da: xr.DataArray) -> bool:
+    time_dimension = find_time_dims_name(da.dims)
+    return time_dimension is not None and da.dims == (time_dimension,) and is_time_dtype(da.dtype)
 
 
 def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> None:

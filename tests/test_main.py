@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from xdiff.core import main
 from xdiff.model import CompareMode
 
@@ -80,6 +82,12 @@ def test_normalize_variables_parses_plain_and_mapped_specs():
 
 def test_normalize_variables_strips_whitespace_around_mapping():
     assert main.normalize_variables(["thetao = votemper"]) == (("thetao", "votemper"),)
+
+
+@pytest.mark.parametrize("spec", ["=votemper", "thetao=", "=", ""])
+def test_normalize_variables_rejects_specs_with_an_empty_side(spec):
+    with pytest.raises(ValueError, match="Invalid variable specification"):
+        main.normalize_variables([spec])
 
 
 def test_build_request_enables_dask_from_worker_option():

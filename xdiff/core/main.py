@@ -78,14 +78,19 @@ def _parse_variable_spec(spec: str | tuple[str, str]) -> tuple[str, str]:
     """Parse one ``-v`` value into a (reference, comparison) name pair.
 
     A plain ``NAME`` compares the same name on both sides; ``REF=CMP`` maps a
-    reference variable to a differently-named comparison variable.
+    reference variable to a differently-named comparison variable. A malformed
+    spec with an empty side (e.g. ``=votemper`` or ``thetao=``) is rejected so a
+    typo fails loudly instead of silently comparing nothing.
     """
     if isinstance(spec, tuple):
         return spec
     if "=" in spec:
-        reference_name, comparison_name = spec.split("=", 1)
-        return (reference_name.strip(), comparison_name.strip())
-    return (spec, spec)
+        reference_name, comparison_name = (part.strip() for part in spec.split("=", 1))
+    else:
+        reference_name = comparison_name = spec.strip()
+    if not reference_name or not comparison_name:
+        raise ValueError(f"Invalid variable specification {spec!r}: expected NAME or REF=CMP with non-empty names.")
+    return (reference_name, comparison_name)
 
 
 def load_files(directory: Path, filter_name: str) -> list[Path]:
