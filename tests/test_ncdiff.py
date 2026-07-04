@@ -41,7 +41,7 @@ def test_get_dataset_variables_defaults_skip_string_like_values():
 
     variables = get_dataset_variables(dataset, settings.DEFAULT_VARIABLES_TO_CHECK)
 
-    assert variables == ["temp", "time"]
+    assert variables == [("temp", "temp"), ("time", "time")]
 
 
 def test_get_dataset_variables_respects_explicit_variable_selection():
@@ -54,7 +54,7 @@ def test_get_dataset_variables_respects_explicit_variable_selection():
 
     variables = get_dataset_variables(dataset, ["label", "temp", "missing"])
 
-    assert variables == ["temp"]
+    assert variables == [("temp", "temp")]
 
 
 def test_find_time_dims_name_returns_single_time_dimension():
@@ -243,6 +243,29 @@ def test_compare_datasets_records_variable_level_errors():
 
     assert len(results) == 1
     assert results[0].variable == "temp"
+    assert results[0].description != "-"
+
+
+def test_compare_datasets_maps_differently_named_variables():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"votemper": ("x", [1.0, 2.0, 3.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert results[0].passed
+    assert results[0].variable == "thetao -> votemper"
+
+
+def test_compare_datasets_reports_missing_mapped_comparison_variable():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"other": ("x", [1.0, 2.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert not results[0].passed
+    assert results[0].variable == "thetao -> votemper"
     assert results[0].description != "-"
 
 

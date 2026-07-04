@@ -45,7 +45,9 @@ class CompareRequest:
     comparison_path: Path
     filter_name: str
     common_pattern: str | None
-    variables: tuple[str, ...] | None
+    # Ordered (reference_name, comparison_name) pairs; None means "all data vars
+    # and dims, same name on both sides". Plain -v names normalize to (n, n).
+    variables: tuple[tuple[str, str], ...] | None
     last_time_step: bool = False
     dask_scheduler: str | None = None
     dask_scheduler_file: Path | None = None

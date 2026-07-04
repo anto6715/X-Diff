@@ -50,7 +50,7 @@ def test_execute_builds_request_and_delegates_to_service(monkeypatch):
     assert fake_service.request.input_mode is CompareMode.DIRECTORIES
     assert fake_service.request.filter_name == "*.nc"
     assert fake_service.request.common_pattern == r"\d{8}\.nc"
-    assert fake_service.request.variables == ("temp",)
+    assert fake_service.request.variables == (("temp", "temp"),)
     assert fake_service.request.last_time_step is True
     assert fake_service.request.uses_dask is False
     assert fake_service.request.dask_scheduler is None
@@ -68,6 +68,18 @@ def test_build_request_normalizes_default_variable_selection_to_none():
     assert request.variables is None
     assert request.input_mode is CompareMode.DIRECTORIES
     assert request.uses_dask is False
+
+
+def test_normalize_variables_parses_plain_and_mapped_specs():
+    assert main.normalize_variables(["thetao=votemper", "lon=longitude", "temp"]) == (
+        ("thetao", "votemper"),
+        ("lon", "longitude"),
+        ("temp", "temp"),
+    )
+
+
+def test_normalize_variables_strips_whitespace_around_mapping():
+    assert main.normalize_variables(["thetao = votemper"]) == (("thetao", "votemper"),)
 
 
 def test_build_request_enables_dask_from_worker_option():

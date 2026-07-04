@@ -132,7 +132,10 @@ def cli(ctx: click.Context) -> None:
     "-v",
     "--variables",
     multiple=True,
-    help="Variables to compare. Repeat the option to compare multiple variables.",
+    help=(
+        "Variables to compare. Repeat the option to compare multiple variables. "
+        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
+    ),
 )
 @click.option(
     "--last-time-step",
@@ -188,7 +191,10 @@ def compare_directories(
     "-v",
     "--variables",
     multiple=True,
-    help="Variables to compare. Repeat the option to compare multiple variables.",
+    help=(
+        "Variables to compare. Repeat the option to compare multiple variables. "
+        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
+    ),
 )
 @click.option(
     "--last-time-step",
