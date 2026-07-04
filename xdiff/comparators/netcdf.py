@@ -122,28 +122,35 @@ def _find_coordinate(dataset: xr.Dataset, standard_names: set[str], units: set[s
 
 
 def crop_to_bbox(dataset: xr.Dataset, bbox: BoundingBox) -> xr.Dataset:
-    """Crop a dataset to a lon/lat box, dispatching on 1-D vs 2-D coordinates.
+    """Crop a dataset to a lon/lat box, dispatching on the coordinate layout.
 
     Raises ``ValueError`` if lon/lat coordinates cannot be located or if the box
-    selects no data (outside the dataset's extent), so a mis-specified box fails
-    loudly rather than yielding empty, trivially-identical fields.
+    selects no data, so a mis-specified box fails loudly rather than yielding
+    empty, trivially-identical fields.
     """
     longitude_name, latitude_name = locate_horizontal_coords(dataset)
     if longitude_name is None or latitude_name is None:
-        raise ValueError(f"Cannot apply --bbox ({bbox}): no longitude/latitude coordinates found in the dataset.")
+        raise ValueError(f"Cannot apply bounding box ({bbox}): no longitude/latitude coordinates found in the dataset.")
 
-    longitude = dataset[longitude_name]
-    latitude = dataset[latitude_name]
-    if longitude.ndim == 1 and latitude.ndim == 1:
+    # Label-based `.sel` only works when lon/lat are dimension coordinates (have
+    # an index). 1-D auxiliary coordinates (e.g. lon(x)) and 2-D curvilinear grids
+    # are cropped by boolean masking instead.
+    if _is_rectilinear_axis(dataset, longitude_name) and _is_rectilinear_axis(dataset, latitude_name):
         cropped = _crop_rectilinear(dataset, longitude_name, latitude_name, bbox)
     else:
-        cropped = _crop_curvilinear(dataset, longitude, latitude, bbox)
+        cropped = _crop_curvilinear(dataset, dataset[longitude_name], dataset[latitude_name], bbox)
 
     if cropped[longitude_name].size == 0 or cropped[latitude_name].size == 0:
-        raise ValueError(f"--bbox ({bbox}) selects no data; the box is outside the dataset extent.")
+        raise ValueError(f"Bounding box ({bbox}) selects no data; it is empty or lies outside the dataset extent.")
 
-    logger.info("Cropped to bbox %s", bbox)
+    logger.info("Cropped to bounding box %s", bbox)
     return cropped
+
+
+def _is_rectilinear_axis(dataset: xr.Dataset, name) -> bool:
+    """True when ``name`` is a 1-D dimension coordinate (indexable by ``.sel``)."""
+    coordinate = dataset[name]
+    return coordinate.ndim == 1 and coordinate.dims == (name,)
 
 
 def _crop_rectilinear(dataset: xr.Dataset, longitude_name, latitude_name, bbox: BoundingBox) -> xr.Dataset:

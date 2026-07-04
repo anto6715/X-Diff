@@ -333,6 +333,22 @@ def test_crop_to_bbox_curvilinear_grid():
     assert dict(cropped.sizes) == {"y": 4, "x": 4}
 
 
+def test_crop_to_bbox_one_dimensional_auxiliary_coordinates():
+    # lon/lat are 1-D but auxiliary (their dims are x/y, not lon/lat), so they
+    # are not indexable by .sel and must be cropped by masking instead.
+    dataset = xr.Dataset(
+        {"sst": (("y", "x"), np.zeros((5, 5)))},
+        coords={
+            "lon": ("x", np.arange(-2.0, 3.0), {"units": "degrees_east"}),
+            "lat": ("y", np.arange(-2.0, 3.0), {"units": "degrees_north"}),
+        },
+    )
+
+    cropped = crop_to_bbox(dataset, BoundingBox(lon_min=-1, lon_max=1, lat_min=-1, lat_max=1))
+
+    assert dict(cropped.sizes) == {"y": 3, "x": 3}
+
+
 def test_crop_to_bbox_raises_when_box_is_outside_extent():
     dataset = _rectilinear_dataset(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
 
