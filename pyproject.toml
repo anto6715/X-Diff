@@ -74,6 +74,11 @@ select = ["E", "W", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:numpy.ndarray size changed, may indicate binary incompatibility.*:RuntimeWarning",
+    # Panel <2.0 still accepts `name=` on widgets; keep it for compatibility across the
+    # pinned range and quiet the pending-deprecation notice the plotting tests surface.
+    "ignore:Widget.name is deprecated.*:PendingDeprecationWarning",
+    # Emitted by tornado/bokeh server internals during the served-dashboard test.
+    "ignore:There is no current event loop.*:DeprecationWarning",
 ]
 
 [tool.coverage.run]

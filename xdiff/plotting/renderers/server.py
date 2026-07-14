@@ -160,6 +160,15 @@ def _load_viz():
     # layout and Markdown render but the plot panes stay blank). Both are idempotent.
     holoviews.extension("bokeh")
     panel.extension()
+
+    # Our plots use fixed frame sizes (frame_width/frame_height) inside auto-sizing
+    # layout containers, which Bokeh flags with W-1005 (FIXED_SIZING_MODE) on every
+    # render — cosmetic here and it floods the server log. Silence just that check.
+    from bokeh.core.validation import silence
+    from bokeh.core.validation.warnings import FIXED_SIZING_MODE
+
+    silence(FIXED_SIZING_MODE, True)
+
     return holoviews, panel
 
 
