@@ -286,7 +286,20 @@ def compare_files(
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
     metavar="FILE",
-    help="Write a static image; the extension picks the format (.png/.pdf/.svg).",
+    help="Write a static image; the extension picks the format (.png/.pdf/.svg). Omit for the live server.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(min=1, max=65535),
+    default=None,
+    metavar="N",
+    help="Port for the live interactive server (default: 5006). Ignored with -o.",
+)
+@click.option(
+    "--no-open",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the browser; just print the URL (server mode, e.g. for headless/SSH).",
 )
 def plot(
     reference_path: Path,
@@ -295,21 +308,32 @@ def plot(
     last_time_step: bool,
     bbox: tuple[float, float, float, float] | None,
     output: Path | None,
+    port: int | None,
+    no_open: bool,
 ) -> None:
-    """Plot where two netCDF files differ, as reference | comparison | difference."""
-    # The interactive server (default, no -o) arrives in a later iteration.
-    if output is None:
-        raise click.ClickException(
-            "interactive server not available yet; pass -o FILE.png (.png/.pdf/.svg) for a static image"
-        )
+    """Plot where two netCDF files differ, as reference | comparison | difference.
 
-    # Lazy imports keep CLI startup fast: matplotlib/xarray load only for `plot`.
+    With -o, render a static image and exit. Without -o, start a live interactive
+    server on localhost, open the browser, and block until Ctrl-C.
+    """
+    # Lazy imports keep CLI startup fast: the plotting stack loads only for `plot`.
     from xdiff.core.main import normalize_bbox, normalize_variables
-    from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
     from xdiff.plotting.spec import build_plot_spec
 
+    static = output is not None
+    address = "localhost"
     try:
-        validate_output_extension(output)
+        if static:
+            from xdiff.plotting.renderers.matplotlib_renderer import validate_output_extension
+
+            validate_output_extension(output)
+        else:
+            from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available
+
+            server_port = port if port is not None else DEFAULT_PORT
+            # Fail fast on a busy port before doing any numeric work.
+            ensure_port_available(address, server_port)
+
         spec = build_plot_spec(
             reference_path,
             comparison_path,
@@ -317,14 +341,33 @@ def plot(
             last_time_step=last_time_step,
             bbox=normalize_bbox(bbox),
         )
-        written = render_to_files(spec, output)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     for skipped in spec.skipped:
         click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
-    for path in written:
-        click.echo(f"wrote {path}")
+
+    if static:
+        from xdiff.plotting.renderers.matplotlib_renderer import render_to_files
+
+        try:
+            written = render_to_files(spec, output)
+        except (RuntimeError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        for path in written:
+            click.echo(f"wrote {path}")
+        return
+
+    if not spec.variables:
+        raise click.ClickException("no plottable variables found")
+
+    from xdiff.plotting.renderers.server import serve
+
+    url = f"http://{address}:{server_port}"
+    click.echo(f"Serving xdiff plot at {url} (Ctrl-C to stop)")
+    if no_open:
+        click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
+    serve(spec, port=server_port, open_browser=not no_open, address=address)
 
 
 if __name__ == "__main__":

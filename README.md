@@ -50,6 +50,12 @@ The base install runs serially and is intentionally lightweight. To enable Dask-
 uv tool install --python 3.13 "xdiffly[dask]"
 ```
 
+The `plot` subcommand needs the optional `plot` extra (matplotlib for static images, holoviews/panel/bokeh for the live server):
+
+```shell
+uv tool install --python 3.13 "xdiffly[plot]"
+```
+
 ## Usage
 
 From a source checkout, prefix commands with `uv run`. If you installed with `uv tool install`, use `xdiff` directly.
@@ -66,6 +72,7 @@ Options:
 Commands:
   dirs   Compare two directories of datasets.
   files  Compare two dataset files directly, even if their filenames differ.
+  plot   Plot where two netCDF files differ (static image or live server).
 
 ```
 
@@ -94,6 +101,36 @@ uv run xdiff files global.nc regional.nc -v thetao --bbox -6 36 30 46
 ```
 
 Inputs on *different* grids or resolutions need regridding first — that is out of scope for `--bbox`.
+
+### Plot where two files differ
+
+`xdiff plot` turns the comparison from *numbers* into a *picture*: for each variable it draws a **reference | comparison | difference** triptych, with the difference on a diverging colormap centered at 0 (so red/blue shows the sign of the disagreement). It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
+
+There are two modes, selected by the presence of `-o`:
+
+**Static image** — render to a file and exit (for reports and scripting). The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
+
+```shell
+uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
+```
+
+**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Pan/zoom/hover are live, and a per-variable slider adjusts the difference colour limit without recomputing. Nothing is written to disk; when `xdiff` exits, the server stops.
+
+```shell
+uv run xdiff plot reference.nc comparison.nc -v thetao
+```
+
+The server binds `localhost` only. On a remote/HPC login node, forward the port over SSH and open the URL locally:
+
+```shell
+# on your laptop
+ssh -L 5006:localhost:5006 user@login-node
+# then, in that session
+xdiff plot reference.nc comparison.nc -v thetao --no-open
+# finally, open http://localhost:5006 in your local browser
+```
+
+Use `--port N` if `5006` is taken (a busy port fails immediately with a clear message — it is never silently moved, which would break the tunnel). `--no-open` skips launching a browser and just prints the URL, for headless sessions.
 
 ### Filter files
 

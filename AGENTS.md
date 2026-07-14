@@ -46,9 +46,10 @@ The installed script is `xdiff` (defined in `pyproject.toml` under `[project.scr
 ```
 xdiff dirs <REFERENCE_PATH> <COMPARISON_PATH> [OPTIONS]   # compare two directories
 xdiff files <REFERENCE.nc> <COMPARISON.nc> [OPTIONS]      # compare two files directly
+xdiff plot <REFERENCE.nc> <COMPARISON.nc> [OPTIONS]       # plot where two files differ
 ```
 
-Key options shared by both subcommands:
+Key options across the subcommands (`-v`, `--last-time-step`, `--bbox` apply to `plot` too; `-f`, `--common-pattern` and the Dask options are for `dirs`/`files` only):
 
 | Option | Description |
 |---|---|
@@ -64,6 +65,16 @@ Key options shared by both subcommands:
 
 Exit code 0 = all comparisons passed; exit code 1 = one or more failures.
 
+`plot`-specific options (needs the `plot` extra):
+
+| Option | Description |
+|---|---|
+| `-o / --output FILE` | Write a static image; the extension picks the format (`.png`/`.pdf`/`.svg`). Omit for the live interactive server. |
+| `--port N` | Port for the live server (default `5006`; fails fast if busy, never auto-incremented). Ignored with `-o`. |
+| `--no-open` | Do not auto-open a browser; print the URL (for headless / `ssh -L` sessions). |
+
+Without `-o`, `plot` starts a Panel/Bokeh server bound to `localhost` and blocks until Ctrl-C (exit 0); with `-o` it renders one triptych per variable and exits.
+
 ## Build, Test, and Development Commands
 
 Use `uv` for all local setup and execution:
@@ -71,6 +82,7 @@ Use `uv` for all local setup and execution:
 - `uv sync`: create the virtual environment and install runtime + dev dependencies (the default `dev` group pulls in the `dask` extra, so the full toolchain is present).
 - `uv sync --no-default-groups`: install only the base runtime — serial execution, no Dask. This mirrors what PyPI users get from `pip install xdiffly`.
 - `uv sync --extra dask`: base runtime plus the optional Dask backend (`dask`, `distributed`, `bokeh`); this is what `pip install "xdiffly[dask]"` provides.
+- `uv sync --extra plot`: base runtime plus the optional plotting backend (`matplotlib` for static images; `holoviews`, `hvplot`, `panel`, `bokeh` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand.
 - `uv run xdiff dirs a b`: run the CLI against the bundled sample folders.
 - `uv run xdiff --help`: verify argument parsing and exposed options.
 - `uv build`: create wheel and sdist artifacts in `dist/`.

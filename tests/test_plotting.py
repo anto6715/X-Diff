@@ -310,3 +310,63 @@ def test_render_to_files_raises_when_nothing_plottable(tmp_path):
     spec = PlotSpec(tmp_path / "ref.nc", tmp_path / "cmp.nc", [], [SkippedVariable("sst", "0-D")])
     with pytest.raises(ValueError, match="no plottable variables"):
         render_to_files(spec, tmp_path / "diff.png")
+
+
+# --------------------------------------------------------------------------- interactive server
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("localhost", 0))
+        return probe.getsockname()[1]
+
+
+def test_build_dashboard_has_one_row_per_variable():
+    from xdiff.plotting.renderers.server import build_dashboard
+
+    spec = PlotSpec(
+        Path("ref.nc"),
+        Path("cmp.nc"),
+        [_variable_plot(np.ones((5, 5)), label="thetao"), _variable_plot(np.arange(6.0), label="profile")],
+        [],
+    )
+
+    dashboard = build_dashboard(spec)
+
+    # A header pane plus one column per variable (2-D map row and 1-D line row).
+    assert len(dashboard) == 1 + len(spec.variables)
+
+
+def test_build_dashboard_constructs_curvilinear_quadmesh():
+    from xdiff.plotting.renderers.server import build_dashboard
+
+    lon2d = np.tile(np.arange(4.0), (3, 1))
+    lat2d = np.tile(np.arange(3.0)[:, None], (1, 4))
+    variable = _variable_plot(np.ones((3, 4)), lon=lon2d, lat=lat2d)
+    dashboard = build_dashboard(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [variable], []))
+
+    assert len(dashboard) == 2  # header + one row
+
+
+def test_ensure_port_available_passes_for_free_port():
+    from xdiff.plotting.renderers.server import ensure_port_available
+
+    ensure_port_available("localhost", _free_port())
+
+
+def test_ensure_port_available_raises_for_busy_port():
+    import socket
+
+    from xdiff.plotting.renderers.server import ensure_port_available
+
+    holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    holder.bind(("localhost", 0))
+    holder.listen()
+    busy_port = holder.getsockname()[1]
+    try:
+        with pytest.raises(ValueError, match="already in use"):
+            ensure_port_available("localhost", busy_port)
+    finally:
+        holder.close()

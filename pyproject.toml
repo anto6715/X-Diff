@@ -24,10 +24,14 @@ dask = [
     "bokeh>=3.1.0,<4.0.0",
 ]
 # Plotting backends. Only required for the `plot` subcommand; imported lazily.
-# The interactive Panel/Bokeh server (a later iteration) extends this with
-# hvplot/holoviews/panel; static rendering needs only matplotlib.
+# Static rendering (`-o`) uses matplotlib; the live interactive server (no `-o`)
+# uses holoviews/panel over Bokeh, consistent with the Dask-dashboard Bokeh server.
 plot = [
     "matplotlib>=3.8.0,<4.0.0",
+    "holoviews>=1.18.0,<2.0.0",
+    "hvplot>=0.10.0,<0.12.0",
+    "panel>=1.4.0,<2.0.0",
+    "bokeh>=3.1.0,<4.0.0",
 ]
 
 [project.urls]
