@@ -144,7 +144,10 @@ def _reference_block(holoviews, panel, variable: VariablePlot):
 
 
 def _load_viz():
-    """Import holoviews + panel lazily, with the Bokeh backend and a clear install hint."""
+    """Import holoviews + panel lazily and configure the Bokeh backend once.
+
+    Returns the two modules, raising a clear install hint when the plot extra is absent.
+    """
     try:
         import holoviews
         import panel
@@ -154,22 +157,26 @@ def _load_viz():
             'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
             "or pass -o FILE.png for a static image instead."
         ) from exc
+    _configure_bokeh_backend(holoviews, panel)
+    return holoviews, panel
+
+
+def _configure_bokeh_backend(holoviews, panel) -> None:
+    """Register the Bokeh backend and quiet a benign layout warning (all idempotent)."""
     # Both are needed for a served page to actually render the HoloViews plots:
-    # holoviews.extension registers the Bokeh backend; panel.extension makes Panel
-    # inject the HoloViews/Bokeh JS resources into the served document (without it the
-    # layout and Markdown render but the plot panes stay blank). Both are idempotent.
+    # holoviews.extension registers the Bokeh backend; panel.extension makes Panel inject
+    # the HoloViews/Bokeh JS resources into the served document (without it the layout and
+    # Markdown render but the plot panes stay blank).
     holoviews.extension("bokeh")
     panel.extension()
 
-    # Our plots use fixed frame sizes (frame_width/frame_height) inside auto-sizing
-    # layout containers, which Bokeh flags with W-1005 (FIXED_SIZING_MODE) on every
-    # render — cosmetic here and it floods the server log. Silence just that check.
+    # Our plots use fixed frame sizes (frame_width/frame_height) inside auto-sizing layout
+    # containers, which Bokeh flags with W-1005 (FIXED_SIZING_MODE) on every render —
+    # cosmetic here and it floods the server log. Silence just that check.
     from bokeh.core.validation import silence
     from bokeh.core.validation.warnings import FIXED_SIZING_MODE
 
     silence(FIXED_SIZING_MODE, True)
-
-    return holoviews, panel
 
 
 def _map(holoviews, variable: VariablePlot, values):

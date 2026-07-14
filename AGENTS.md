@@ -82,7 +82,7 @@ Use `uv` for all local setup and execution:
 - `uv sync`: create the virtual environment and install runtime + dev dependencies (the default `dev` group pulls in the `dask` extra, so the full toolchain is present).
 - `uv sync --no-default-groups`: install only the base runtime — serial execution, no Dask. This mirrors what PyPI users get from `pip install xdiffly`.
 - `uv sync --extra dask`: base runtime plus the optional Dask backend (`dask`, `distributed`, `bokeh`); this is what `pip install "xdiffly[dask]"` provides.
-- `uv sync --extra plot`: base runtime plus the optional plotting backend (`matplotlib` for static images; `holoviews`, `hvplot`, `panel`, `bokeh` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand.
+- `uv sync --extra plot`: base runtime plus the optional plotting backend (`matplotlib` for static images; `holoviews`, `panel`, `bokeh` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand.
 - `uv run xdiff dirs a b`: run the CLI against the bundled sample folders.
 - `uv run xdiff --help`: verify argument parsing and exposed options.
 - `uv build`: create wheel and sdist artifacts in `dist/`.

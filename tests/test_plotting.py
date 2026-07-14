@@ -427,7 +427,7 @@ def test_serving_delivers_plot_glyphs_to_a_session():
         assert session is not None, "server did not become ready"
         glyphs = [model for model in session.document.select({}) if isinstance(model, GlyphRenderer)]
         session.close()
-        # reference | comparison | difference -> at least three glyph renderers.
+        # difference (hero) + reference + comparison -> at least three glyph renderers.
         assert len(glyphs) >= 3
     finally:
         server.stop()

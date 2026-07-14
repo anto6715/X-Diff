@@ -650,26 +650,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hvplot"
-version = "0.11.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "bokeh" },
-    { name = "colorcet" },
-    { name = "holoviews" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "packaging" },
-    { name = "pandas" },
-    { name = "panel" },
-    { name = "param" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5d/a4/5558d167414eb6f9cc78f2da0382b398ba8f126a60e862cca97d4a0c4a44/hvplot-0.11.3.tar.gz", hash = "sha256:ce82dea296af6146b9a51aa5ed1f772e5415a07c6c33a4eae0f00bbe7ec880ca", size = 7010334, upload-time = "2025-04-30T12:52:21.879Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/4a/3490c93a699f3d5e4d708748b494a44639dec973b609eb4e17c2d94bc733/hvplot-0.11.3-py3-none-any.whl", hash = "sha256:5fa236a737ef3ca83870bf1b481218855834f4fad56ed0cb041ce5f2792cc7a3", size = 170266, upload-time = "2025-04-30T12:52:19.655Z" },
-]
-
-[[package]]
 name = "idna"
 version = "3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -2128,7 +2108,6 @@ dask = [
 plot = [
     { name = "bokeh" },
     { name = "holoviews" },
-    { name = "hvplot" },
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "panel" },
@@ -2151,7 +2130,6 @@ requires-dist = [
     { name = "dask", marker = "extra == 'dask'", specifier = ">=2024.6.0,<2025.0.0" },
     { name = "distributed", marker = "extra == 'dask'", specifier = ">=2024.6.0,<2025.0.0" },
     { name = "holoviews", marker = "extra == 'plot'", specifier = ">=1.18.0,<2.0.0" },
-    { name = "hvplot", marker = "extra == 'plot'", specifier = ">=0.10.0,<0.12.0" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8.0,<4.0.0" },
     { name = "netcdf4", specifier = ">=1.7.1,<2.0.0" },
     { name = "pandas", specifier = ">=2.2.2,<3.0.0" },

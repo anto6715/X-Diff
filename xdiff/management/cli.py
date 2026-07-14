@@ -293,6 +293,8 @@ def compare_files(
     type=click.IntRange(min=1, max=65535),
     default=None,
     metavar="N",
+    # Keep the quoted default in sync with server.DEFAULT_PORT (not imported here to keep
+    # CLI startup free of the plotting stack).
     help="Port for the live interactive server (default: 5006). Ignored with -o.",
 )
 @click.option(
@@ -311,10 +313,12 @@ def plot(
     port: int | None,
     no_open: bool,
 ) -> None:
-    """Plot where two netCDF files differ, as reference | comparison | difference.
+    """Plot where two netCDF files differ, focusing on the difference field.
 
-    With -o, render a static image and exit. Without -o, start a live interactive
-    server on localhost, open the browser, and block until Ctrl-C.
+    With -o, render the difference (one full-size image per variable) and exit. Without
+    -o, start a live interactive server on localhost — each difference shown large with a
+    colour-limit slider, reference/comparison behind a collapsed card — and block until
+    Ctrl-C.
     """
     # Lazy imports keep CLI startup fast: the plotting stack loads only for `plot`.
     from xdiff.core.main import normalize_bbox, normalize_variables
