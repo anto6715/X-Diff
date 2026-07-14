@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 SUPPORTED_EXTENSIONS = (".png", ".pdf", ".svg")
 
-_REFERENCE_CMAP = "viridis"
 _DIFF_CMAP = "RdBu_r"
 
 
@@ -78,32 +77,20 @@ def _load_pyplot():
 
 
 def _render_variable(plt, variable: VariablePlot):
-    """Dispatch on dimensionality: triptych of maps for 2-D, of lines for 1-D."""
+    """Render only the difference — a full-size map (2-D) or line (1-D).
+
+    Static output (``-o``) is for reports: the difference is the point, so we give it the
+    whole figure rather than cramming it into one third of a reference|comparison triptych.
+    """
     if len(variable.dims) == 2:
-        figure = _render_2d(plt, variable)
-    else:
-        figure = _render_1d(plt, variable)
-    figure.suptitle(variable.label)
-    return figure
+        return _render_diff_map(plt, variable)
+    return _render_diff_line(plt, variable)
 
 
-def _render_2d(plt, variable: VariablePlot):
-    figure, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-    label = _value_label(variable)
-
-    shared_min, shared_max = _shared_limits(variable.reference, variable.comparison)
-    for axis, values, title in (
-        (axes[0], variable.reference, "reference"),
-        (axes[1], variable.comparison, "comparison"),
-    ):
-        mappable = _pcolor(
-            axis, values, variable.lon, variable.lat, cmap=_REFERENCE_CMAP, vmin=shared_min, vmax=shared_max
-        )
-        axis.set_title(title)
-        figure.colorbar(mappable, ax=axis, label=label)
-
-    diff_mappable = _pcolor(
-        axes[2],
+def _render_diff_map(plt, variable: VariablePlot):
+    figure, axis = plt.subplots(figsize=(8, 6.5))
+    mappable = _pcolor(
+        axis,
         variable.difference,
         variable.lon,
         variable.lat,
@@ -111,27 +98,20 @@ def _render_2d(plt, variable: VariablePlot):
         vmin=-variable.diff_limit,
         vmax=variable.diff_limit,
     )
-    axes[2].set_title(f"difference\nclipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}")
-    figure.colorbar(diff_mappable, ax=axes[2], label=label)
+    axis.set_title(
+        f"{variable.label} — difference\nclipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}"
+    )
+    figure.colorbar(mappable, ax=axis, label=_value_label(variable))
     figure.tight_layout()
     return figure
 
 
-def _render_1d(plt, variable: VariablePlot):
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    label = _value_label(variable)
-    x_values = _axis_1d(variable)
-
-    axes[0].plot(x_values, variable.reference, label="reference")
-    axes[0].plot(x_values, variable.comparison, label="comparison", linestyle="--")
-    axes[0].set_title("reference vs comparison")
-    axes[0].set_ylabel(label)
-    axes[0].legend()
-
-    axes[1].axhline(0.0, color="0.7", linewidth=0.8)
-    axes[1].plot(x_values, variable.difference, color="tab:red")
-    axes[1].set_title(f"difference (true ±{variable.diff_extreme:.3g})")
-    axes[1].set_ylabel(label)
+def _render_diff_line(plt, variable: VariablePlot):
+    figure, axis = plt.subplots(figsize=(9, 5))
+    axis.axhline(0.0, color="0.7", linewidth=0.8)
+    axis.plot(_axis_1d(variable), variable.difference, color="tab:red")
+    axis.set_title(f"{variable.label} — difference (true ±{variable.diff_extreme:.3g})")
+    axis.set_ylabel(_value_label(variable))
     figure.tight_layout()
     return figure
 
@@ -164,13 +144,6 @@ def _axis_1d(variable: VariablePlot) -> np.ndarray:
         if coordinate is not None and coordinate.ndim == 1 and coordinate.size == length:
             return coordinate
     return np.arange(length)
-
-
-def _shared_limits(reference: np.ndarray, comparison: np.ndarray) -> tuple[float | None, float | None]:
-    stacked = np.concatenate([np.asarray(reference, dtype=float).ravel(), np.asarray(comparison, dtype=float).ravel()])
-    if not np.any(np.isfinite(stacked)):
-        return None, None
-    return float(np.nanmin(stacked)), float(np.nanmax(stacked))
 
 
 def _value_label(variable: VariablePlot) -> str:

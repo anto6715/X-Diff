@@ -104,17 +104,17 @@ Inputs on *different* grids or resolutions need regridding first — that is out
 
 ### Plot where two files differ
 
-`xdiff plot` turns the comparison from *numbers* into a *picture*: for each variable it draws a **reference | comparison | difference** triptych, with the difference on a diverging colormap centered at 0 (so red/blue shows the sign of the disagreement). It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
+`xdiff plot` turns the comparison from *numbers* into a *picture* of **where** two files differ. The difference is the focus — drawn on a diverging colormap centered at 0, so red/blue shows the sign of the disagreement. It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
 
 There are two modes, selected by the presence of `-o`:
 
-**Static image** — render to a file and exit (for reports and scripting). The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
+**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
 ```
 
-**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Pan/zoom/hover are live, and a per-variable slider adjusts the difference colour limit without recomputing. Nothing is written to disk; when `xdiff` exits, the server stops.
+**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Each variable's **difference** is shown large, with a slider that adjusts its colour limit live (no recompute); the reference and comparison maps sit in a collapsed *"Reference & comparison maps"* card at the bottom, expanded on demand. Pan/zoom/hover are live. Nothing is written to disk; when `xdiff` exits, the server stops.
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao

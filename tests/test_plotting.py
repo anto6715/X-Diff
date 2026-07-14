@@ -323,7 +323,7 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def test_build_dashboard_has_one_row_per_variable():
+def test_build_dashboard_has_one_diff_section_per_variable():
     from xdiff.plotting.renderers.server import build_dashboard
 
     spec = PlotSpec(
@@ -335,8 +335,21 @@ def test_build_dashboard_has_one_row_per_variable():
 
     dashboard = build_dashboard(spec)
 
-    # A header pane plus one column per variable (2-D map row and 1-D line row).
-    assert len(dashboard) == 1 + len(spec.variables)
+    # Header + one hero difference section per variable + one bottom card (reference/comparison).
+    assert len(dashboard) == 1 + len(spec.variables) + 1
+
+
+def test_build_dashboard_last_child_is_collapsed_reference_card():
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import build_dashboard
+
+    spec = PlotSpec(Path("ref.nc"), Path("cmp.nc"), [_variable_plot(np.ones((5, 5)))], [])
+    dashboard = build_dashboard(spec)
+
+    card = dashboard[-1]
+    assert isinstance(card, pn.Card)
+    assert card.collapsed is True
 
 
 def test_build_dashboard_constructs_curvilinear_quadmesh():
@@ -347,7 +360,7 @@ def test_build_dashboard_constructs_curvilinear_quadmesh():
     variable = _variable_plot(np.ones((3, 4)), lon=lon2d, lat=lat2d)
     dashboard = build_dashboard(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [variable], []))
 
-    assert len(dashboard) == 2  # header + one row
+    assert len(dashboard) == 3  # header + one diff section + reference card
 
 
 def test_ensure_port_available_passes_for_free_port():

@@ -21,8 +21,10 @@ DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Da
 
 _REFERENCE_CMAP = "viridis"
 _DIFF_CMAP = "RdBu_r"
-_PANEL_WIDTH = 340
-_PANEL_HEIGHT = 300
+# The difference is the hero: give it a large frame. Reference/comparison are secondary
+# (revealed on demand in a collapsed card), so they get a smaller frame.
+_DIFF_FRAME = {"frame_width": 760, "frame_height": 520}
+_REFERENCE_FRAME = {"frame_width": 340, "frame_height": 260}
 
 
 def ensure_port_available(address: str, port: int) -> None:
@@ -74,11 +76,71 @@ def serve(spec: PlotSpec, *, port: int, open_browser: bool, address: str = "loca
 
 
 def build_dashboard(spec: PlotSpec):
-    """Compose one row per variable into a single Panel layout (no server started)."""
+    """Compose the page (no server started): difference maps are the hero.
+
+    Layout: a header, then one large **difference** plot per variable (2-D map with a live
+    colour-limit slider, or 1-D line). The reference and comparison maps — secondary — go
+    into a single collapsed card at the bottom, revealed on demand.
+    """
     holoviews, panel = _load_viz()
-    rows = [_variable_row(holoviews, panel, variable) for variable in spec.variables]
     header = panel.pane.Markdown(f"# xdiff plot\n`{spec.reference_path.name}` vs `{spec.comparison_path.name}`")
-    return panel.Column(header, *rows)
+    diff_sections = [_diff_section(holoviews, panel, variable) for variable in spec.variables]
+    reference_card = panel.Card(
+        *(_reference_block(holoviews, panel, variable) for variable in spec.variables),
+        title="Reference & comparison maps",
+        collapsed=True,
+        sizing_mode="stretch_width",
+    )
+    return panel.Column(header, *diff_sections, reference_card)
+
+
+def _diff_section(holoviews, panel, variable: VariablePlot):
+    """The hero difference plot for one variable (with a live colour slider when 2-D)."""
+    title = panel.pane.Markdown(f"## {variable.label}")
+    if len(variable.dims) != 2:
+        difference = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
+            color="red", title="difference", tools=["hover"], **_DIFF_FRAME
+        )
+        return panel.Column(title, difference)
+
+    slider = panel.widgets.FloatSlider(
+        name="colour limit (±)",
+        start=0.0,
+        end=_slider_end(variable),
+        value=variable.diff_limit,
+        step=_slider_end(variable) / 100.0,
+    )
+
+    def render(limit):
+        return _map(holoviews, variable, variable.difference).opts(
+            cmap=_DIFF_CMAP, clim=(-limit, limit), colorbar=True, title="difference", tools=["hover"], **_DIFF_FRAME
+        )
+
+    return panel.Column(title, slider, panel.bind(render, slider))
+
+
+def _reference_block(holoviews, panel, variable: VariablePlot):
+    """The secondary reference/comparison view for one variable (goes in the bottom card)."""
+    heading = panel.pane.Markdown(f"**{variable.label}**")
+    if len(variable.dims) != 2:
+        axis = _axis_1d(variable)
+        overlay = (
+            holoviews.Curve((axis, variable.reference), label="reference")
+            * holoviews.Curve((axis, variable.comparison), label="comparison")
+        ).opts(
+            holoviews.opts.Curve(tools=["hover"], **_REFERENCE_FRAME),
+            holoviews.opts.Overlay(legend_position="top_right", title="reference vs comparison"),
+        )
+        return panel.Column(heading, overlay)
+
+    low, high = _shared_clim(variable.reference, variable.comparison)
+    reference = _map(holoviews, variable, variable.reference).opts(
+        cmap=_REFERENCE_CMAP, clim=(low, high), colorbar=True, title="reference", tools=["hover"], **_REFERENCE_FRAME
+    )
+    comparison = _map(holoviews, variable, variable.comparison).opts(
+        cmap=_REFERENCE_CMAP, clim=(low, high), colorbar=True, title="comparison", tools=["hover"], **_REFERENCE_FRAME
+    )
+    return panel.Column(heading, panel.Row(reference, comparison))
 
 
 def _load_viz():
@@ -101,72 +163,15 @@ def _load_viz():
     return holoviews, panel
 
 
-def _variable_row(holoviews, panel, variable: VariablePlot):
-    title = panel.pane.Markdown(f"### {variable.label}")
-    if len(variable.dims) == 2:
-        body = _map_row(holoviews, panel, variable)
-    else:
-        body = _line_row(holoviews, panel, variable)
-    return panel.Column(title, body)
+def _map(holoviews, variable: VariablePlot, values):
+    """Build a 2-D map element: QuadMesh (honours 1-D or 2-D lon/lat), else Image.
 
-
-def _map_row(holoviews, panel, variable: VariablePlot):
-    low, high = _shared_clim(variable.reference, variable.comparison)
-    reference = _map_element(
-        holoviews, variable, variable.reference, cmap=_REFERENCE_CMAP, clim=(low, high), title="reference"
-    )
-    comparison = _map_element(
-        holoviews, variable, variable.comparison, cmap=_REFERENCE_CMAP, clim=(low, high), title="comparison"
-    )
-    return panel.Row(reference, comparison, _diff_panel(holoviews, panel, variable))
-
-
-def _diff_panel(holoviews, panel, variable: VariablePlot):
-    """The difference map plus a live symmetric colour-limit slider (no recompute)."""
-    slider = panel.widgets.FloatSlider(
-        name="colour limit (±)",
-        start=0.0,
-        end=_slider_end(variable),
-        value=variable.diff_limit,
-        step=_slider_end(variable) / 100.0,
-    )
-
-    def render(limit):
-        element = _hv_element(holoviews, variable, variable.difference)
-        return element.opts(cmap=_DIFF_CMAP, clim=(-limit, limit), colorbar=True, title="difference")
-
-    return panel.Column(slider, panel.bind(render, slider))
-
-
-def _line_row(holoviews, panel, variable: VariablePlot):
-    axis = _axis_1d(variable)
-    reference = holoviews.Curve((axis, variable.reference), label="reference")
-    comparison = holoviews.Curve((axis, variable.comparison), label="comparison")
-    overlay = (reference * comparison).opts(
-        holoviews.opts.Curve(width=_PANEL_WIDTH, height=_PANEL_HEIGHT, tools=["hover"]),
-        holoviews.opts.Overlay(legend_position="top_right", title="reference vs comparison"),
-    )
-    difference = holoviews.Curve((axis, variable.difference)).opts(
-        width=_PANEL_WIDTH, height=_PANEL_HEIGHT, color="red", tools=["hover"], title="difference"
-    )
-    return panel.Row(overlay, difference)
-
-
-def _map_element(holoviews, variable: VariablePlot, values, *, cmap, clim, title):
-    element = _hv_element(holoviews, variable, values)
-    return element.opts(cmap=cmap, clim=clim, colorbar=True, title=title)
-
-
-def _hv_element(holoviews, variable: VariablePlot, values):
-    """Build a QuadMesh (honours 1-D or 2-D lon/lat), Image, or Curve from a slice."""
+    The caller applies cmap/clim/frame opts, since the difference and reference maps use
+    different colormaps, limits, and sizes.
+    """
     values = np.asarray(values, dtype=float)
-    if len(variable.dims) == 2:
-        quadmesh = _quadmesh(holoviews, variable.lon, variable.lat, values)
-        element = quadmesh if quadmesh is not None else holoviews.Image(values, vdims=["value"])
-        return element.opts(width=_PANEL_WIDTH, height=_PANEL_HEIGHT, tools=["hover"])
-    return holoviews.Curve((_axis_1d(variable), values), vdims=["value"]).opts(
-        width=_PANEL_WIDTH, height=_PANEL_HEIGHT, tools=["hover"]
-    )
+    quadmesh = _quadmesh(holoviews, variable.lon, variable.lat, values)
+    return quadmesh if quadmesh is not None else holoviews.Image(values, vdims=["value"])
 
 
 def _quadmesh(holoviews, lon, lat, values):
