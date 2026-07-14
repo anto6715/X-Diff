@@ -9,7 +9,6 @@ can be adjusted live with no recompute. Nothing is written to disk. Heavy import
 
 from __future__ import annotations
 
-import functools
 import socket
 from typing import TYPE_CHECKING
 
@@ -43,13 +42,27 @@ def ensure_port_available(address: str, port: int) -> None:
             ) from exc
 
 
+def build_application(spec: PlotSpec):
+    """Return the no-arg callable Panel serves (a fresh dashboard per browser session).
+
+    Deliberately a named closure, **not** ``functools.partial``: Bokeh's server
+    introspects the app callable's signature to decide how to invoke it and mishandles a
+    partial, serving an empty document (the page loads but the plots are blank). Building
+    per session also gives each browser its own widget (slider) state.
+    """
+
+    def application():
+        return build_dashboard(spec)
+
+    return application
+
+
 def serve(spec: PlotSpec, *, port: int, open_browser: bool, address: str = "localhost") -> None:
     """Serve the dashboard at ``http://{address}:{port}`` and block until Ctrl-C."""
     _, panel = _load_viz()
-    application = functools.partial(build_dashboard, spec)
     try:
         panel.serve(
-            application,
+            build_application(spec),
             port=port,
             address=address,
             show=open_browser,
@@ -79,7 +92,12 @@ def _load_viz():
             'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
             "or pass -o FILE.png for a static image instead."
         ) from exc
+    # Both are needed for a served page to actually render the HoloViews plots:
+    # holoviews.extension registers the Bokeh backend; panel.extension makes Panel
+    # inject the HoloViews/Bokeh JS resources into the served document (without it the
+    # layout and Markdown render but the plot panes stay blank). Both are idempotent.
     holoviews.extension("bokeh")
+    panel.extension()
     return holoviews, panel
 
 

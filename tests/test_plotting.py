@@ -370,3 +370,51 @@ def test_ensure_port_available_raises_for_busy_port():
             ensure_port_available("localhost", busy_port)
     finally:
         holder.close()
+
+
+def test_serving_delivers_plot_glyphs_to_a_session():
+    """Regression: serve the dashboard for real and assert the plots actually arrive.
+
+    The first cut passed ``functools.partial(build_dashboard, spec)`` as the Panel app
+    factory; Bokeh mishandled the partial and served an empty document (page loaded,
+    plots blank). Building the bootstrap page returns HTTP 200 either way, so only a real
+    served session — asserting glyph renderers are delivered — catches this.
+    """
+    import time
+
+    import panel as pn
+    from bokeh.client import pull_session
+    from bokeh.models import GlyphRenderer
+
+    from xdiff.plotting.renderers.server import build_application
+
+    spec = PlotSpec(
+        Path("ref.nc"),
+        Path("cmp.nc"),
+        [_variable_plot(np.ones((5, 6)), reference=np.arange(30.0).reshape(5, 6))],
+        [],
+    )
+    port = _free_port()
+    server = pn.serve(
+        build_application(spec),
+        port=port,
+        address="localhost",
+        show=False,
+        threaded=True,
+        websocket_origin=[f"localhost:{port}"],
+    )
+    try:
+        session = None
+        for _ in range(20):
+            try:
+                session = pull_session(url=f"http://localhost:{port}/")
+                break
+            except Exception:
+                time.sleep(0.5)
+        assert session is not None, "server did not become ready"
+        glyphs = [model for model in session.document.select({}) if isinstance(model, GlyphRenderer)]
+        session.close()
+        # reference | comparison | difference -> at least three glyph renderers.
+        assert len(glyphs) >= 3
+    finally:
+        server.stop()
