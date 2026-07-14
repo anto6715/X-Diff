@@ -250,5 +250,82 @@ def compare_files(
     )
 
 
+#
+# xdiff plot
+#
+@cli.command("plot")
+@click.argument(
+    "reference_path",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    callback=_validate_netcdf_file,
+)
+@click.argument(
+    "comparison_path",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    callback=_validate_netcdf_file,
+)
+@click.option(
+    "-v",
+    "--variables",
+    multiple=True,
+    help=(
+        "Variables to plot. Repeat the option to plot multiple variables. "
+        "Use REF=CMP to plot differently-named variables (e.g. thetao=votemper)."
+    ),
+)
+@click.option(
+    "--last-time-step",
+    is_flag=True,
+    default=False,
+    help="If enabled, plot only the last time step available in each file.",
+)
+@_bbox_option
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    metavar="FILE",
+    help="Write a static image; the extension picks the format (.png/.pdf/.svg).",
+)
+def plot(
+    reference_path: Path,
+    comparison_path: Path,
+    variables: tuple[str, ...],
+    last_time_step: bool,
+    bbox: tuple[float, float, float, float] | None,
+    output: Path | None,
+) -> None:
+    """Plot where two netCDF files differ, as reference | comparison | difference."""
+    # The interactive server (default, no -o) arrives in a later iteration.
+    if output is None:
+        raise click.ClickException(
+            "interactive server not available yet; pass -o FILE.png (.png/.pdf/.svg) for a static image"
+        )
+
+    # Lazy imports keep CLI startup fast: matplotlib/xarray load only for `plot`.
+    from xdiff.core.main import normalize_bbox, normalize_variables
+    from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
+    from xdiff.plotting.spec import build_plot_spec
+
+    try:
+        validate_output_extension(output)
+        spec = build_plot_spec(
+            reference_path,
+            comparison_path,
+            normalize_variables(variables or settings.DEFAULT_VARIABLES_TO_CHECK),
+            last_time_step=last_time_step,
+            bbox=normalize_bbox(bbox),
+        )
+        written = render_to_files(spec, output)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for skipped in spec.skipped:
+        click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
+    for path in written:
+        click.echo(f"wrote {path}")
+
+
 if __name__ == "__main__":
     cli()
