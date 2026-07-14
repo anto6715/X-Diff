@@ -23,6 +23,12 @@ dask = [
     "distributed>=2024.6.0,<2025.0.0",
     "bokeh>=3.1.0,<4.0.0",
 ]
+# Plotting backends. Only required for the `plot` subcommand; imported lazily.
+# The interactive Panel/Bokeh server (a later iteration) extends this with
+# hvplot/holoviews/panel; static rendering needs only matplotlib.
+plot = [
+    "matplotlib>=3.8.0,<4.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/anto6715/X-Diff"
@@ -41,6 +47,8 @@ dev = [
     "ruff>=0.14.0,<0.15.0",
     # Pull the optional Dask backend so its tests run in dev/CI.
     "xdiffly[dask]",
+    # Pull the optional plotting backend so its tests run in dev/CI.
+    "xdiffly[plot]",
 ]
 
 [build-system]
