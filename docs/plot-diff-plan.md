@@ -34,7 +34,9 @@ netCDF fields differ. New subcommand **`xdiff plot REF CMP ...`**.
 4. **One optional extra `xdiff[plot]`** bundling matplotlib + hvplot + holoviews + panel
    (+ bokeh). Lazy-imported, mirroring the `dask` extra pattern.
 5. **Content per variable = triptych: `reference | comparison | difference`.** The diff panel
-   uses a **diverging colormap centered at 0** with **symmetric limits** (`±max(|nanmin|,|nanmax|)`).
+   uses a **diverging colormap centered at 0** with **symmetric limits**. The limit is a **robust
+   99.5th-percentile clip** of `|difference|` (raw extremes wash the panel out), with the true
+   extreme kept for the subtitle and as the interactive slider's upper bound (see §2d).
    Use lon/lat for axes when detectable.
 6. **Reuse the comparison options** so you plot exactly what you'd compare: `-v` (including
    `REF=CMP` mapping), `--bbox`, `--last-time-step`.
@@ -61,21 +63,33 @@ import numpy as np
 
 @dataclass(frozen=True)
 class VariablePlot:
-    label: str                 # "thetao" or "thetao -> votemper" (from _as_variable_pair)
+    label: str                 # "thetao" or "thetao -> votemper" (from _as_variable_pair);
+                               #   include the selected index for any collapsed extra dim,
+                               #   e.g. "thetao [depth=0]" (see §2b)
     reference: np.ndarray      # reduced to <=2-D
-    comparison: np.ndarray     # same shape as reference
+    comparison: np.ndarray     # same shape as reference — INVARIANT (see §2e)
     difference: np.ndarray     # reference - comparison, computed in float (see §2c)
     lon: np.ndarray | None     # 1-D or 2-D; axis coordinates, or None if undetectable
     lat: np.ndarray | None
-    diff_limit: float          # symmetric colour limit = max(abs(nanmin), abs(nanmax)) of difference
+    diff_limit: float          # DEFAULT symmetric colour limit: robust 99.5th-pct clip of
+                               #   |difference| (see §2d). Static renderer uses it directly;
+                               #   interactive slider uses it as its initial value.
+    diff_extreme: float        # TRUE symmetric extreme = max(abs(nanmin), abs(nanmax)) of
+                               #   difference. Slider upper bound + subtitle ("true range ±Y").
     units: str | None          # from ref_da.attrs.get("units")
     dims: tuple[str, ...]      # reduced dims, for axis labels / 1-D vs 2-D dispatch
+
+@dataclass(frozen=True)
+class SkippedVariable:
+    label: str                 # variable (pair) that could not be plotted
+    reason: str                # human-readable, e.g. "shape (50,100) vs (49,100)" or "0-D"
 
 @dataclass(frozen=True)
 class PlotSpec:
     reference_path: Path
     comparison_path: Path
     variables: list[VariablePlot]
+    skipped: list[SkippedVariable]   # recorded, not raised; CLI prints them (see §2e)
 ```
 
 **Builder** (`build_plot_spec(...) -> PlotSpec`), the heart of the feature:
@@ -95,23 +109,34 @@ Steps (reuse existing helpers — see §7):
 3. `pairs = get_dataset_variables(reference_ds, variables)` → list of `(ref_name, cmp_name)`.
 4. For each pair: `ref_da = reference_ds[ref_name]`, `cmp_da = comparison_ds[cmp_name]`.
    - **Reduce to ≤2-D** (new helper `reduce_to_plottable`, §2b).
-   - Build `label` exactly like `compare_datasets`: `ref_name if ref_name==cmp_name else f"{ref_name} -> {cmp_name}"`.
+   - Build `label` exactly like `compare_datasets`: `ref_name if ref_name==cmp_name else f"{ref_name} -> {cmp_name}"`,
+     then append the selected index for any collapsed extra dim (§2b), e.g. `thetao [depth=0]`.
+   - **Shape check (§2e):** if `ref.shape != cmp.shape` after reduction, record a
+     `SkippedVariable(label, reason=f"shape {ref.shape} vs {cmp.shape}")` and **continue** — do
+     **not** broadcast. This keeps the `VariablePlot` invariant (all three arrays same shape) intact.
    - Compute `difference` with the **integer-underflow-safe** subtraction (§2c).
    - `lon_name, lat_name = locate_horizontal_coords(reference_ds)`; take their values for axes
      (None if absent → renderer falls back to index axes).
-   - `diff_limit = float(max(abs(np.nanmin(diff)), abs(np.nanmax(diff)))))` (guard all-NaN → 0/skip).
-5. Return `PlotSpec`. **Read `.values` (materialize) inside the `with` block** so arrays outlive
-   the closed datasets.
+   - Colour limits (§2d): `diff_extreme = float(max(abs(np.nanmin(diff)), abs(np.nanmax(diff))))`
+     and `diff_limit = float(np.nanpercentile(np.abs(diff), 99.5))` (guard all-NaN → record a
+     `SkippedVariable(reason="all-NaN difference")`; guard `diff_limit == 0` → fall back to
+     `diff_extreme` or a small epsilon so the colormap isn't degenerate).
+5. Return `PlotSpec` (including `skipped`). **Read `.values` (materialize) inside the `with` block**
+   so arrays outlive the closed datasets.
 
 ### 2b. N-D → 2-D reduction (new helper)
-`reduce_to_plottable(field: xr.DataArray, *, last_time_step: bool) -> xr.DataArray`:
+`reduce_to_plottable(field, *, last_time_step) -> tuple[xr.DataArray, dict[str, int]]`
+(the reduced array **and** a `{dim: selected_index}` map of every collapsed extra dim, for the label):
 - Horizontal dims = the dims of the lon/lat coordinate(s) (1-D: `(lon,)`,`(lat,)`; 2-D
   curvilinear: `(y, x)`). Keep those.
 - For every **other** dim: if it is the time dim (`find_time_dims_name`), select last step when
-  `last_time_step` else first; for any other extra dim (e.g. depth) select index 0 and **log at
-  info** which index was taken.
+  `last_time_step` else first; for any other extra dim (e.g. depth) select index 0. **Return which
+  dim(s)/index(es) were collapsed** so the builder can bake them into the `label`
+  (`thetao [depth=0]`) — an info log alone is too quiet and hides that the user is seeing only one
+  layer. The selected index must be **visible in the plot title/label**, not just the log.
 - Result should be ≤2-D. If it ends up 1-D → renderer draws line plots (ref/cmp/diff lines).
-  If 0-D or no horizontal dims → skip that variable with an info log (record nothing in the spec).
+  If 0-D or no horizontal dims → the builder records a `SkippedVariable(reason="0-D / no
+  horizontal dims")` (nothing added to `variables`).
 
 ### 2c. Integer-safe difference (copy the policy from `compare_variables`)
 Mirror the existing guard so plots don't show wrapped values:
@@ -122,7 +147,37 @@ else:
     difference = ref_values - cmp_values
 ```
 
-### 2d. Renderer seam (two lifecycles)
+### 2d. Colour limits — robust default, live-adjustable in the server
+A diverging colormap centred at 0 washes out to neutral if a single outlier cell dominates the
+extreme. So the diff colour limit is a **robust percentile clip**, not the raw extreme:
+- `diff_limit` (99.5th percentile of `|difference|`) is the **default** symmetric limit.
+- `diff_extreme` (true `max(|nanmin|, |nanmax|)`) is kept alongside it.
+
+**Static renderer:** clamps to `±diff_limit` and annotates the subtitle
+`clipped at ±diff_limit; true range ±diff_extreme` so nothing is silently hidden.
+
+**Interactive server (Iteration 2):** `diff_limit` is only the *initial* value of a **live
+colour-limit slider** (range `0 … diff_extreme`). "Navigate the results" = the user widens/narrows
+the clim in the browser with no recompute — the payoff of keeping the process alive. Because both
+numbers already live in `VariablePlot`, the slider needs no extra data plumbing.
+
+### 2e. Skipped variables — data, not exceptions
+Consistent with the comparator boundary ("errors are data"): a variable that cannot be plotted is
+**recorded on `PlotSpec.skipped`, never raised**, so one bad variable never aborts the page/file.
+Skip (with a `SkippedVariable` reason) when:
+- **post-reduction shape mismatch** `ref.shape != cmp.shape` — do **not** broadcast; a pointwise
+  difference is undefined. (The name/coord-tolerant matching in the comparators means differing
+  shapes are legitimately reachable — e.g. different depth levels, or a var present in only one file.)
+- reduction yields **0-D / no horizontal dims**;
+- the **difference is all-NaN**.
+
+Keeping these out of `variables` preserves the `VariablePlot` invariant (all three arrays present,
+identical shape), which is what lets both renderers stay dumb. The CLI prints the skip list, one
+line each (like a comparison-failure line). *Future option:* for a shape mismatch, still show
+`reference | comparison` side-by-side with a blank/annotated diff panel — deliberately deferred
+because it pushes branching logic into the renderer that the `PlotSpec` seam exists to avoid.
+
+### 2f. Renderer seam (two lifecycles)
 `-o` presence dispatches between two renderers with **different lifecycles**:
 
 ```python
@@ -194,9 +249,12 @@ Options:
 - Wrap user-facing errors (missing coords, empty bbox, unknown extension, no plottable
   variables) as `click.ClickException` via the same `(RuntimeError, ValueError)` pattern used
   in `_render_report`.
-- **Port default:** pick a fixed, predictable default (e.g. `5006`) so the SSH tunnel is set up
-  once; if busy, either fail with a clear message or increment — document the choice. Do **not**
-  clash with the Dask dashboard (`:8787`).
+- **Port default & conflict:** fixed, predictable default (e.g. `5006`) so the SSH tunnel is set
+  up once; must not clash with the Dask dashboard (`:8787`). On a busy port, **fail with a clear
+  message** naming the port and suggesting `--port` — **never auto-increment** (the user tunnelled
+  `5006`; grabbing `5007` silently points the tunnel at nothing). **Bind-test the port up front —
+  before `build_plot_spec` opens datasets or does any numeric work** — so a conflict costs nothing
+  instead of wasting a full comparison.
 
 ---
 
@@ -216,16 +274,20 @@ Add:
 - `pyproject.toml`: `plot` extra (matplotlib is the only part Iteration 1 needs, but you may
   declare the full extra now); add `xdiffly[plot]` to dev group; `uv lock`.
 - `xdiff/plotting/__init__.py`, `xdiff/plotting/spec.py` (`PlotSpec`, `VariablePlot`,
-  `build_plot_spec`, `reduce_to_plottable`).
+  `SkippedVariable`, `build_plot_spec`, `reduce_to_plottable`; percentile `diff_limit` +
+  `diff_extreme`; shape-mismatch/0-D/all-NaN skip policy per §2d–§2e; collapsed-dim index in `label`).
 - `xdiff/plotting/renderers/__init__.py`, `.../matplotlib_renderer.py` (`render_to_files`,
-  `Agg` backend, triptych for 2-D, line plots for 1-D, NaN → blank, diverging cmap centered 0,
+  `Agg` backend, triptych for 2-D, line plots for 1-D, NaN → blank, diverging cmap centered 0
+  clamped to `±diff_limit` with a `clipped at ±X; true range ±Y` subtitle,
   multi-var naming helper, extension→format helper).
-- `xdiff/management/cli.py`: the `plot` command (static path only).
-Tests (`tests/test_plotting.py`): `build_plot_spec` on a synthetic 2-D pair (labels, diff
-values, diff_limit, lon/lat picked up, integer-safe diff, bbox applied, `REF=CMP` mapping,
-last_time_step reduction, extra-dim reduction, skip 0-D); extension/naming helper (1 var exact,
-N vars suffixed, bad extension raises); matplotlib smoke (`render_to_files` writes a non-empty
-file, no exception). Drive real CLI: `xdiff plot a.nc b.nc -v sst -o /tmp/x.png` → file exists.
+- `xdiff/management/cli.py`: the `plot` command (static path only); print the `skipped` list.
+Tests (`tests/test_plotting.py`): `build_plot_spec` on a synthetic 2-D pair (labels incl.
+collapsed-dim index, diff values, `diff_limit` = 99.5th-pct clip **and** `diff_extreme` = true
+extreme, lon/lat picked up, integer-safe diff, bbox applied, `REF=CMP` mapping, last_time_step
+reduction, extra-dim reduction); skip policy (shape mismatch → `SkippedVariable`, 0-D skipped,
+all-NaN skipped, and these never raise); extension/naming helper (1 var exact, N vars suffixed,
+bad extension raises); matplotlib smoke (`render_to_files` writes a non-empty file, no exception).
+Drive real CLI: `xdiff plot a.nc b.nc -v sst -o /tmp/x.png` → file exists.
 **Acceptance:** static triptych renders for 2-D and 1-D vars; ruff clean; tests pass on 3.10–3.14.
 
 ### Iteration 2 — live interactive Panel/Bokeh server (default path)
@@ -235,16 +297,20 @@ file, no exception). Drive real CLI: `xdiff plot a.nc b.nc -v sst -o /tmp/x.png`
 Add:
 - `xdiff/plotting/renderers/server.py`: `serve(spec, *, port, open_browser, address)` — build a
   holoviews/hvplot object per variable (image/quadmesh for 2-D, curve for 1-D; diverging cmap
-  centered 0 for the diff), compose into a **single Panel layout** (all variables on one page),
-  and `panel.serve(...)`/`.show(...)` bound to `localhost`, blocking. Handle `KeyboardInterrupt`.
-- `cli.py`: wire the no-`-o` path to `serve`; add `--port`/`--no-open`; remove the Iteration-1
-  "not available" stub.
+  centered 0 for the diff), each with a **live colour-limit slider** (initial `diff_limit`, range
+  `0 … diff_extreme`, no recompute — see §2d), compose into a **single Panel layout** (all
+  variables on one page), and `panel.serve(...)`/`.show(...)` bound to `localhost`, blocking.
+  Handle `KeyboardInterrupt`.
+- `cli.py`: wire the no-`-o` path to `serve`; add `--port`/`--no-open`; **bind-test the port up
+  front (before `build_plot_spec`), fail clearly on conflict, never auto-increment** (§4); remove
+  the Iteration-1 "not available" stub.
 - Docs: README section on the live server + the `ssh -L` remote recipe; `AGENTS.md` option table.
 Tests: build the holoviews/panel object from a `PlotSpec` **without serving** (assert it
 constructs, has the expected number of panels); do **not** start a real server in unit tests
 (optionally an integration test behind a marker that starts and immediately stops it).
-**Acceptance:** live server opens and is interactive (pan/zoom/hover); Ctrl-C exits 0; `--no-open`
-prints the URL; binds localhost only.
+**Acceptance:** live server opens and is interactive (pan/zoom/hover; colour-limit slider adjusts
+the diff clim live); Ctrl-C exits 0; `--no-open` prints the URL; binds localhost only; a busy port
+fails fast with a clear message before any datasets are opened.
 
 ### Iteration 3+ — future (not MVP; only if requested)
 - Live widgets: a **time/depth slider** that recomputes server-side (now possible because the
@@ -291,7 +357,13 @@ prints the URL; binds localhost only.
 ## 8. Risks / open items
 - **Large grids** inflate a live server's memory / websocket traffic; datashader (Iter 3) is the
   answer. For the MVP, note the caveat; optionally offer a coarsen/stride later.
-- **Port conflicts** on shared login nodes — pick default, document `--port`, fail clearly if busy.
+- **Port conflicts** on shared login nodes — **resolved:** fixed default, `--port` override,
+  up-front bind-test that fails clearly, no auto-increment (§4). Remote/HPC needs nothing beyond
+  `--port`/`--no-open` — no dedicated iteration.
+- **Colour-limit outliers** — **resolved:** robust 99.5th-pct clip as default, true extreme in the
+  subtitle, live slider in the server (§2d).
+- **Shape mismatch between ref/cmp** after reduction — **resolved:** recorded as a
+  `SkippedVariable`, never broadcast/raised (§2e).
 - **hvplot/holoviews/panel version churn** — pin, lock, and verify install on the full matrix.
 - **1-D vs 2-D dispatch** in renderers — keep it explicit in `PlotSpec.dims`.
 - Curvilinear 2-D coords: prefer hvplot `quadmesh` (honours 2-D lon/lat) over `image`.
