@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 SUPPORTED_EXTENSIONS = (".png", ".pdf", ".svg")
 
 _DIFF_CMAP = "RdBu_r"
+# NaN cells (land / masked) are painted this neutral grey. On the diverging colormap white
+# already means "no difference", so leaving NaN white would be ambiguous. Matches the
+# interactive server's land colour.
+_LAND_COLOR = "#b0b0b0"
 
 
 def validate_output_extension(output: Path) -> None:
@@ -120,10 +124,14 @@ def _pcolor(axis, values, lon, lat, **kwargs):
     """Draw a 2-D field, using lon/lat for axes when their shapes line up.
 
     Falls back to an index-axis image when coordinates are absent or their shapes do
-    not match the field (so an orientation quirk never aborts the render). NaNs render
-    blank in both paths.
+    not match the field (so an orientation quirk never aborts the render). NaN cells
+    (land / masked) render as neutral grey in both paths.
     """
     values = np.asarray(values, dtype=float)
+    if isinstance(kwargs.get("cmap"), str):
+        import matplotlib
+
+        kwargs["cmap"] = matplotlib.colormaps[kwargs["cmap"]].with_extremes(bad=_LAND_COLOR)
     if lon is not None and lat is not None:
         try:
             if lon.ndim == 1 and lat.ndim == 1:

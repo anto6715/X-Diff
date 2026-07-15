@@ -21,10 +21,23 @@ DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Da
 
 _REFERENCE_CMAP = "viridis"
 _DIFF_CMAP = "RdBu_r"
-# The difference is the hero: give it a large frame. Reference/comparison are secondary
-# (revealed on demand in a collapsed card), so they get a smaller frame.
-_DIFF_FRAME = {"frame_width": 760, "frame_height": 520}
-_REFERENCE_FRAME = {"frame_width": 340, "frame_height": 260}
+# Land (and any masked cell) is NaN. On a diverging colormap white already means "no
+# difference", so paint NaN a neutral grey to keep the two unambiguous.
+_LAND_COLOR = "#b0b0b0"
+# The difference is the hero, so it gets more height; reference/comparison are secondary
+# (revealed on demand in a collapsed card). Both fill the available width responsively.
+_DIFF_MIN_HEIGHT = 460
+_REFERENCE_MIN_HEIGHT = 300
+# Shared map options. `responsive` fills the page width; `data_aspect=1` keeps lon/lat
+# proportioned; `active_tools` makes the scroll wheel zoom immediately.
+_MAP_OPTS = {
+    "colorbar": True,
+    "clipping_colors": {"NaN": _LAND_COLOR},
+    "tools": ["hover"],
+    "active_tools": ["wheel_zoom"],
+    "responsive": True,
+    "data_aspect": 1,
+}
 
 
 def ensure_port_available(address: str, port: int) -> None:
@@ -99,7 +112,7 @@ def _diff_section(holoviews, panel, variable: VariablePlot):
     title = panel.pane.Markdown(f"## {variable.label}")
     if len(variable.dims) != 2:
         difference = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
-            color="red", title="difference", tools=["hover"], **_DIFF_FRAME
+            color="red", title="difference", tools=["hover"], responsive=True, min_height=_DIFF_MIN_HEIGHT
         )
         return panel.Column(title, difference)
 
@@ -111,12 +124,17 @@ def _diff_section(holoviews, panel, variable: VariablePlot):
         step=_slider_end(variable) / 100.0,
     )
 
-    def render(limit):
-        return _map(holoviews, variable, variable.difference).opts(
-            cmap=_DIFF_CMAP, clim=(-limit, limit), colorbar=True, title="difference", tools=["hover"], **_DIFF_FRAME
-        )
-
-    return panel.Column(title, slider, panel.bind(render, slider))
+    # `apply.opts` binds the colour limit to the slider on the *same* map, so dragging it
+    # re-clims in place (updates the colour mapper) without rebuilding the plot — zoom/pan
+    # is preserved.
+    styled = _map(holoviews, variable, variable.difference).apply.opts(
+        cmap=_DIFF_CMAP,
+        clim=panel.bind(lambda limit: (-limit, limit), slider),
+        title="difference",
+        min_height=_DIFF_MIN_HEIGHT,
+        **_MAP_OPTS,
+    )
+    return panel.Column(title, slider, panel.pane.HoloViews(styled))
 
 
 def _reference_block(holoviews, panel, variable: VariablePlot):
@@ -128,17 +146,17 @@ def _reference_block(holoviews, panel, variable: VariablePlot):
             holoviews.Curve((axis, variable.reference), label="reference")
             * holoviews.Curve((axis, variable.comparison), label="comparison")
         ).opts(
-            holoviews.opts.Curve(tools=["hover"], **_REFERENCE_FRAME),
+            holoviews.opts.Curve(tools=["hover"], responsive=True, min_height=_REFERENCE_MIN_HEIGHT),
             holoviews.opts.Overlay(legend_position="top_right", title="reference vs comparison"),
         )
         return panel.Column(heading, overlay)
 
     low, high = _shared_clim(variable.reference, variable.comparison)
     reference = _map(holoviews, variable, variable.reference).opts(
-        cmap=_REFERENCE_CMAP, clim=(low, high), colorbar=True, title="reference", tools=["hover"], **_REFERENCE_FRAME
+        cmap=_REFERENCE_CMAP, clim=(low, high), title="reference", min_height=_REFERENCE_MIN_HEIGHT, **_MAP_OPTS
     )
     comparison = _map(holoviews, variable, variable.comparison).opts(
-        cmap=_REFERENCE_CMAP, clim=(low, high), colorbar=True, title="comparison", tools=["hover"], **_REFERENCE_FRAME
+        cmap=_REFERENCE_CMAP, clim=(low, high), title="comparison", min_height=_REFERENCE_MIN_HEIGHT, **_MAP_OPTS
     )
     return panel.Column(heading, panel.Row(reference, comparison))
 
@@ -170,9 +188,8 @@ def _configure_bokeh_backend(holoviews, panel) -> None:
     holoviews.extension("bokeh")
     panel.extension()
 
-    # Our plots use fixed frame sizes (frame_width/frame_height) inside auto-sizing layout
-    # containers, which Bokeh flags with W-1005 (FIXED_SIZING_MODE) on every render —
-    # cosmetic here and it floods the server log. Silence just that check.
+    # Some layout combinations trip Bokeh's W-1005 (FIXED_SIZING_MODE) validation on every
+    # render — cosmetic here and it floods the server log. Silence just that check.
     from bokeh.core.validation import silence
     from bokeh.core.validation.warnings import FIXED_SIZING_MODE
 
@@ -182,8 +199,9 @@ def _configure_bokeh_backend(holoviews, panel) -> None:
 def _map(holoviews, variable: VariablePlot, values):
     """Build a 2-D map element: QuadMesh (honours 1-D or 2-D lon/lat), else Image.
 
-    The caller applies cmap/clim/frame opts, since the difference and reference maps use
-    different colormaps, limits, and sizes.
+    A QuadMesh draws the true grid cells as vectors, so they stay crisp and re-render as
+    you zoom. The caller applies cmap/clim/frame opts, since the difference and reference
+    maps use different colormaps, limits, and sizes.
     """
     values = np.asarray(values, dtype=float)
     quadmesh = _quadmesh(holoviews, variable.lon, variable.lat, values)
