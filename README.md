@@ -50,7 +50,7 @@ The base install runs serially and is intentionally lightweight. To enable Dask-
 uv tool install --python 3.13 "xdiffly[dask]"
 ```
 
-The `plot` subcommand needs the optional `plot` extra (matplotlib for static images, holoviews/panel/bokeh/datashader for the live server):
+The `plot` subcommand needs the optional `plot` extra (matplotlib + cartopy for static images; holoviews/geoviews/panel/bokeh/datashader for the live server):
 
 ```shell
 uv tool install --python 3.13 "xdiffly[plot]"
@@ -107,6 +107,8 @@ Inputs on *different* grids or resolutions need regridding first — that is out
 `xdiff plot` turns the comparison from *numbers* into a *picture* of **where** two files differ. The difference is the focus — drawn on a diverging colormap centered at 0, so red/blue shows the sign of the disagreement. It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
 
 There are two modes, selected by the presence of `-o`:
+
+Both modes draw the field on a cartopy/geoviews map — coastlines, filled land, lon/lat gridlines — cropped to the data domain. When the coastline dataset can't be reached (a fully offline node), they fall back to a plain lon/lat map with grey land.
 
 **Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
 

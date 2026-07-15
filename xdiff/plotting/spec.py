@@ -208,6 +208,28 @@ def _build_variable_plot(
     )
 
 
+def valid_extent(variable: VariablePlot) -> tuple[float, float, float, float] | None:
+    """``(lon_min, lon_max, lat_min, lat_max)`` over the cells that actually hold data.
+
+    NEMO ``nav_lon``/``nav_lat`` carry fill values on masked cells, so the raw coordinate
+    min/max would stretch a map far past the real domain (e.g. all of the Sahara under a
+    Mediterranean field). Restrict the box to where the difference is finite. Returns
+    ``None`` when coordinates are absent or nothing is finite.
+    """
+    if variable.lon is None or variable.lat is None:
+        return None
+    valid = np.isfinite(np.asarray(variable.difference, dtype=float))
+    if not valid.any():
+        return None
+    lon = np.asarray(variable.lon, dtype=float)
+    lat = np.asarray(variable.lat, dtype=float)
+    if lon.ndim == 1 and lat.ndim == 1:
+        columns = valid.any(axis=0)
+        rows = valid.any(axis=1)
+        return (float(lon[columns].min()), float(lon[columns].max()), float(lat[rows].min()), float(lat[rows].max()))
+    return (float(lon[valid].min()), float(lon[valid].max()), float(lat[valid].min()), float(lat[valid].max()))
+
+
 def _horizontal_dims(dataset: xr.Dataset, longitude_name, latitude_name) -> set:
     """The set of dims spanned by the lon/lat coordinates (the ones to keep)."""
     dims: set = set()
