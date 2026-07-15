@@ -50,7 +50,7 @@ The base install runs serially and is intentionally lightweight. To enable Dask-
 uv tool install --python 3.13 "xdiffly[dask]"
 ```
 
-The `plot` subcommand needs the optional `plot` extra (matplotlib for static images, holoviews/panel/bokeh for the live server):
+The `plot` subcommand needs the optional `plot` extra (matplotlib for static images, holoviews/panel/bokeh/datashader for the live server):
 
 ```shell
 uv tool install --python 3.13 "xdiffly[plot]"
@@ -114,7 +114,7 @@ There are two modes, selected by the presence of `-o`:
 uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
 ```
 
-**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Each variable's **difference** is shown large, with a slider that adjusts its colour limit live (no recompute); the reference and comparison maps sit in a collapsed *"Reference & comparison maps"* card at the bottom, expanded on demand. Pan/zoom/hover are live. Nothing is written to disk; when `xdiff` exits, the server stops.
+**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Each variable's **difference** is shown large; the maps are datashaded, so they **re-aggregate server-side as you zoom** (scroll to zoom) and scale to large grids. A slider adjusts the colour limit live (zoom preserved), land/masked cells show grey, and hovering reads off the value. The reference and comparison maps sit in a collapsed *"Reference & comparison maps"* card at the bottom, expanded on demand. Nothing is written to disk; when `xdiff` exits, the server stops.
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao

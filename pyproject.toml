@@ -31,6 +31,7 @@ plot = [
     "holoviews>=1.18.0,<2.0.0",
     "panel>=1.4.0,<2.0.0",
     "bokeh>=3.1.0,<4.0.0",
+    "datashader>=0.16.0,<0.19.0",
 ]
 
 [project.urls]
@@ -78,6 +79,8 @@ filterwarnings = [
     "ignore:Widget.name is deprecated.*:PendingDeprecationWarning",
     # Emitted by tornado/bokeh server internals during the served-dashboard test.
     "ignore:There is no current event loop.*:DeprecationWarning",
+    # datashader imports dask.dataframe, which warns about query planning; irrelevant here.
+    "ignore::FutureWarning:dask.dataframe",
 ]
 
 [tool.coverage.run]

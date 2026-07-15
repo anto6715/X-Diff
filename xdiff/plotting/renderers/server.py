@@ -124,10 +124,10 @@ def _diff_section(holoviews, panel, variable: VariablePlot):
         step=_slider_end(variable) / 100.0,
     )
 
-    # `apply.opts` binds the colour limit to the slider on the *same* map, so dragging it
-    # re-clims in place (updates the colour mapper) without rebuilding the plot — zoom/pan
-    # is preserved.
-    styled = _map(holoviews, variable, variable.difference).apply.opts(
+    # `apply.opts` binds the colour limit to the slider on the *same* rasterized map, so
+    # dragging it re-clims in place without rebuilding the plot (zoom/pan preserved). The
+    # datashader RangeXY stream survives the apply, so zooming still re-aggregates.
+    styled = _rasterized_map(holoviews, variable, variable.difference).apply.opts(
         cmap=_DIFF_CMAP,
         clim=panel.bind(lambda limit: (-limit, limit), slider),
         title="difference",
@@ -152,10 +152,10 @@ def _reference_block(holoviews, panel, variable: VariablePlot):
         return panel.Column(heading, overlay)
 
     low, high = _shared_clim(variable.reference, variable.comparison)
-    reference = _map(holoviews, variable, variable.reference).opts(
+    reference = _rasterized_map(holoviews, variable, variable.reference).opts(
         cmap=_REFERENCE_CMAP, clim=(low, high), title="reference", min_height=_REFERENCE_MIN_HEIGHT, **_MAP_OPTS
     )
-    comparison = _map(holoviews, variable, variable.comparison).opts(
+    comparison = _rasterized_map(holoviews, variable, variable.comparison).opts(
         cmap=_REFERENCE_CMAP, clim=(low, high), title="comparison", min_height=_REFERENCE_MIN_HEIGHT, **_MAP_OPTS
     )
     return panel.Column(heading, panel.Row(reference, comparison))
@@ -195,17 +195,36 @@ def _configure_bokeh_backend(holoviews, panel) -> None:
 
     silence(FIXED_SIZING_MODE, True)
 
+    # datashader imports dask.dataframe, which warns once about query planning; irrelevant
+    # to us (we never build a dask dataframe) and noisy in the server log. Match by module,
+    # not message — the warning text starts with a newline, which defeats a message regex.
+    import warnings
+
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"dask\.dataframe")
+
 
 def _map(holoviews, variable: VariablePlot, values):
     """Build a 2-D map element: QuadMesh (honours 1-D or 2-D lon/lat), else Image.
 
-    A QuadMesh draws the true grid cells as vectors, so they stay crisp and re-render as
-    you zoom. The caller applies cmap/clim/frame opts, since the difference and reference
-    maps use different colormaps, limits, and sizes.
+    The caller wraps this in ``rasterize`` and applies cmap/clim/frame opts.
     """
     values = np.asarray(values, dtype=float)
     quadmesh = _quadmesh(holoviews, variable.lon, variable.lat, values)
     return quadmesh if quadmesh is not None else holoviews.Image(values, vdims=["value"])
+
+
+def _rasterized_map(holoviews, variable: VariablePlot, values):
+    """Datashade a 2-D map so it re-aggregates server-side on pan/zoom.
+
+    A plain QuadMesh ships every grid cell to the browser and is only ever drawn at its
+    native resolution; ``rasterize`` renders a pixel image and, via the ``RangeXY`` stream
+    it attaches, recomputes that image at the current extent each time you zoom — the
+    "refresh on zoom" behaviour — and it scales to large grids. The caller applies the
+    colormap and limits (which compose over the datashader pipeline without breaking it).
+    """
+    from holoviews.operation.datashader import rasterize
+
+    return rasterize(_map(holoviews, variable, values))
 
 
 def _quadmesh(holoviews, lon, lat, values):
