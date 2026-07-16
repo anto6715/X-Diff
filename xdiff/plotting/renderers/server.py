@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from xdiff.plotting.spec import DimControl, PlotSource, VariableHandle, VariablePlot
+    from xdiff.plotting.spec import DimControl, PlotSource, VariablePlot
 
 DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Dask :8787
 
@@ -129,42 +129,54 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         name="Rendering", options=list(_METHODS), value=_SMOOTH, color="primary"
     )
     map_controls = (climit, cmap_select, render_toggle)
+    dims_box = panel.Column()  # sidebar "Dimensions" section, repopulated per variable
+    main_holder = panel.Column(sizing_mode="stretch_width")  # main content, replaced on redraw
+    state: dict = {"names": [], "selects": []}
 
-    def sync_controls(index: int) -> None:
-        # Colour limit is per-variable (own units/scale); re-target its bounds from the default
-        # slice on switch. Map-only controls are disabled for a 1-D variable (a line has no map).
+    def redraw(*_events) -> None:
+        # Re-slice for the current variable + dim selection and replace the main content. A
+        # dim change / variable switch / render-mode change lands here (a data change, so the
+        # plot rebuilds); colour limit and colormap are bound in place and never trigger this.
+        index = var_select.value
+        selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
+        variable = source.slice(index, selection)
+        main_holder[:] = [
+            _rendered_variable(
+                holoviews, panel, variable, method=render_toggle.value, cmap_widget=cmap_select, climit_widget=climit
+            )
+        ]
+
+    def rebuild_for_variable(index: int) -> None:
+        # Rebuild the per-variable dimension selectors (Select, not slider: fires once on pick,
+        # not on every step of a drag) and re-target the colour limit from the default slice.
         handle = handles[index]
         for widget in map_controls:
             widget.disabled = not handle.is_map
+        selects = [_dim_select(panel, dim) for dim in handle.extra_dims]
+        for select in selects:
+            select.param.watch(redraw, "value")
+        state["names"] = [dim.name for dim in handle.extra_dims]
+        state["selects"] = selects
+        dims_box[:] = selects or [panel.pane.Markdown("_no time / depth dimensions_", margin=(0, 10))]
         if handle.is_map:
             variable = source.slice(index, {dim.name: dim.default for dim in handle.extra_dims})
             end = _slider_end(variable)
             climit.param.update(start=0.0, end=end, value=min(variable.diff_limit, end), step=end / 100.0)
+        redraw()
 
-    sync_controls(var_select.value)
-    var_select.param.watch(lambda event: sync_controls(event.new), "value")
-
-    def render_main(index):
-        return _variable_view(
-            holoviews,
-            panel,
-            source,
-            index,
-            handles[index],
-            render_toggle=render_toggle,
-            cmap_widget=cmap_select,
-            climit_widget=climit,
-        )
+    rebuild_for_variable(var_select.value)
+    var_select.param.watch(lambda event: rebuild_for_variable(event.new), "value")
+    render_toggle.param.watch(redraw, "value")
 
     return panel.template.FastListTemplate(
         title="xdiff plot",
-        sidebar=_sidebar(panel, var_select, climit, cmap_select, render_toggle),
-        main=[subtitle, panel.bind(render_main, var_select)],
+        sidebar=_sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle),
+        main=[subtitle, main_holder],
     )
 
 
-def _sidebar(panel, var_select, climit, cmap_select, render_toggle) -> list:
-    """Group the controls into labelled, divider-separated sections (Variable / Colour / Rendering)."""
+def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle) -> list:
+    """Group the controls into labelled, divider-separated sections."""
 
     def heading(text: str):
         return panel.pane.Markdown(f"#### {text}", margin=(4, 10, -6, 10))
@@ -172,6 +184,9 @@ def _sidebar(panel, var_select, climit, cmap_select, render_toggle) -> list:
     return [
         heading("Variable"),
         var_select,
+        panel.layout.Divider(),
+        heading("Dimensions"),
+        dims_box,
         panel.layout.Divider(),
         heading("Colour"),
         climit,
@@ -182,35 +197,14 @@ def _sidebar(panel, var_select, climit, cmap_select, render_toggle) -> list:
     ]
 
 
-def _variable_view(
-    holoviews, panel, source, index, handle: VariableHandle, *, render_toggle, cmap_widget, climit_widget
-):
-    """The main-area view for one variable, re-slicing on its time/depth controls.
+def _dim_select(panel, dim: DimControl):
+    """A dropdown selecting one index of a dimension (time, depth, …) by its coordinate label.
 
-    The dimension controls (one per extra dim) live here — created per variable, so switching
-    variable rebuilds them, and moving one re-slices ``source`` server-side. The render mode
-    (smooth/blocks) also feeds the slice render, so toggling it never rebuilds the controls.
+    A ``Select`` (not a slider) so a choice re-slices exactly once, instead of firing for every
+    value swept through while dragging a slider.
     """
-    dim_names = [dim.name for dim in handle.extra_dims]
-    dim_sliders = [_dim_slider(panel, dim) for dim in handle.extra_dims]
-
-    def render_slice(method, *indices):
-        variable = source.slice(index, dict(zip(dim_names, indices, strict=True)))
-        return _rendered_variable(
-            holoviews, panel, variable, method=method, cmap_widget=cmap_widget, climit_widget=climit_widget
-        )
-
-    body = panel.bind(render_slice, render_toggle, *dim_sliders)
-    if not dim_sliders:
-        return panel.Column(body, sizing_mode="stretch_width")
-    controls = panel.Row(*dim_sliders)
-    return panel.Column(controls, body, sizing_mode="stretch_width")
-
-
-def _dim_slider(panel, dim: DimControl):
-    """A labelled discrete slider stepping through one dimension's values (time, depth, …)."""
     options = {label: index for index, label in enumerate(dim.labels)}
-    return panel.widgets.DiscreteSlider(name=dim.name, options=options, value=dim.default)
+    return panel.widgets.Select(name=dim.name, options=options, value=dim.default)
 
 
 def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
