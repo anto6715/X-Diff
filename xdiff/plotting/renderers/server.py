@@ -46,6 +46,20 @@ _SMOOTH = "smooth"
 _BLOCKS = "blocks"
 _METHODS = (_SMOOTH, _BLOCKS)
 
+# Basemaps offered by the sidebar selector: display label -> holoviews tile-source class name
+# (all keyless, fetched over the internet at view time). None = no basemap (offline-safe grey).
+_BASEMAP_OFF = "None (offline)"
+_BASEMAPS = {
+    _BASEMAP_OFF: None,
+    "Carto Light": "CartoLight",
+    "Carto Dark": "CartoDark",
+    "OpenStreetMap": "OSM",
+    "Esri Imagery (satellite)": "EsriImagery",
+    "Esri NatGeo": "EsriNatGeo",
+    "Esri Terrain": "EsriTerrain",
+    "OpenTopoMap": "OpenTopoMap",
+}
+
 
 def ensure_port_available(address: str, port: int) -> None:
     """Fail fast (before any datasets are opened) if ``port`` is already in use.
@@ -129,9 +143,9 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         name="Rendering", options=list(_METHODS), value=_SMOOTH, color="primary"
     )
     # Off by default: tiles need internet (blank on an offline node), so the plain grey path
-    # stays the safe default; turning it on overlays the data on a CartoLight basemap.
-    basemap_toggle = panel.widgets.Checkbox(name="Basemap (CartoLight)", value=False)
-    map_controls = (climit, cmap_select, render_toggle, basemap_toggle)
+    # stays the safe default; picking a basemap overlays the data on those web-map tiles.
+    basemap_select = panel.widgets.Select(name="Basemap", options=_BASEMAPS, value=None)
+    map_controls = (climit, cmap_select, render_toggle, basemap_select)
     dims_box = panel.Column()  # sidebar "Dimensions" section, repopulated per variable
     main_holder = panel.Column(sizing_mode="stretch_width")  # main content, replaced on redraw
     state: dict = {"names": [], "selects": []}
@@ -149,7 +163,7 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
                 panel,
                 variable,
                 method=render_toggle.value,
-                basemap=basemap_toggle.value,
+                basemap=basemap_select.value,
                 cmap_widget=cmap_select,
                 climit_widget=climit,
             )
@@ -176,16 +190,16 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     rebuild_for_variable(var_select.value)
     var_select.param.watch(lambda event: rebuild_for_variable(event.new), "value")
     render_toggle.param.watch(redraw, "value")
-    basemap_toggle.param.watch(redraw, "value")
+    basemap_select.param.watch(redraw, "value")
 
     return panel.template.FastListTemplate(
         title="xdiff plot",
-        sidebar=_sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_toggle),
+        sidebar=_sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_select),
         main=[subtitle, main_holder],
     )
 
 
-def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_toggle) -> list:
+def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_select) -> list:
     """Group the controls into labelled, divider-separated sections."""
 
     def heading(text: str):
@@ -204,7 +218,7 @@ def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, ba
         panel.layout.Divider(),
         heading("Rendering"),
         render_toggle,
-        basemap_toggle,
+        basemap_select,
     ]
 
 
@@ -219,7 +233,10 @@ def _dim_select(panel, dim: DimControl):
 
 
 def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
-    """Render one already-sliced variable: min/max readout, hero difference, reference card."""
+    """Render one already-sliced variable: min/max readout, hero difference, reference card.
+
+    ``basemap`` is a holoviews tile-source class name, or ``None`` for the plain grey path.
+    """
     metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
         hero = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
@@ -252,7 +269,7 @@ def _metadata(panel, variable: VariablePlot):
 
 def _hero_map(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
     """The hero difference map: datashaded, colormap + colour limit bound in place, zoom kept."""
-    element = _field_element(holoviews, variable, variable.difference, web_mercator=basemap)
+    element = _field_element(holoviews, variable, variable.difference, web_mercator=basemap is not None)
     base = _datashaded(holoviews, element, method=method)
     styled = base.apply.opts(
         cmap=panel.bind(lambda name: name, cmap_widget),
@@ -270,7 +287,7 @@ def _reference_maps(holoviews, variable: VariablePlot, *, basemap):
     low, high = _shared_clim(variable.reference, variable.comparison)
     maps = []
     for values, name in ((variable.reference, "reference"), (variable.comparison, "comparison")):
-        element = _field_element(holoviews, variable, values, web_mercator=basemap)
+        element = _field_element(holoviews, variable, values, web_mercator=basemap is not None)
         styled = _datashaded(holoviews, element, method=_SMOOTH).opts(
             cmap=_REFERENCE_CMAP,
             clim=(low, high),
@@ -283,29 +300,35 @@ def _reference_maps(holoviews, variable: VariablePlot, *, basemap):
     return maps
 
 
-def _clipping(basemap: bool) -> dict:
+def _clipping(basemap) -> dict:
     # With a basemap, masked (NaN) cells are transparent so the tiles show through; without
     # one, they are painted grey (land) since there is nothing underneath.
-    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap else {"NaN": _LAND_COLOR}
+    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap is not None else {"NaN": _LAND_COLOR}
 
 
-def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap: bool):
-    """Size the map, cropping to the data; overlay it on CartoLight tiles when ``basemap``.
+def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap):
+    """Size the map, cropping to the data; overlay it on the ``basemap`` tiles when set.
 
-    Tiles are Web Mercator, so the field's coordinates were already reprojected in
-    ``_field_element`` and the extent is converted to metres here.
+    ``basemap`` is a holoviews tile-source class name (or None). Tiles are Web Mercator, so
+    the field's coordinates were already reprojected in ``_field_element`` and the extent is
+    converted to metres here.
     """
-    sizing = {"responsive": True, "height": height, "active_tools": ["wheel_zoom"], **_extent(variable, basemap)}
-    if not basemap:
+    sizing = {
+        "responsive": True,
+        "height": height,
+        "active_tools": ["wheel_zoom"],
+        **_extent(variable, basemap is not None),
+    }
+    if basemap is None:
         return styled.opts(**sizing)
-    return (_carto_light(holoviews) * styled).opts(holoviews.opts.Overlay(**sizing))
+    return (_basemap_tiles(holoviews, basemap) * styled).opts(holoviews.opts.Overlay(**sizing))
 
 
-def _carto_light(holoviews):
-    """The muted CartoLight web-map basemap (needs internet; blank tiles if offline)."""
-    from holoviews.element.tiles import CartoLight
+def _basemap_tiles(holoviews, name: str):
+    """The named holoviews web-map basemap (needs internet; blank tiles if offline)."""
+    import holoviews.element.tiles as tiles
 
-    return CartoLight()
+    return getattr(tiles, name)()
 
 
 def _reference_overlay_1d(holoviews, variable: VariablePlot):

@@ -491,7 +491,7 @@ def test_basemap_reprojects_to_web_mercator_and_overlays_tiles():
         pn,
         variable,
         method="smooth",
-        basemap=True,
+        basemap="EsriImagery",
         cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
         climit_widget=pn.widgets.FloatSlider(start=0.0, end=3.0, value=1.0),
     )
