@@ -26,6 +26,7 @@ _DIFF_CMAP = "RdBu_r"
 # (no coastline data), NaN cells are painted this neutral grey instead.
 _LAND_FILL = "#e8e6d8"
 _LAND_COLOR = "#b0b0b0"
+_COASTLINE_SCALE = "50m"  # Natural Earth resolution; 110m (geoviews default) is too coarse
 # The difference is the hero, so it gets more height; reference/comparison are secondary
 # (revealed on demand in a collapsed card). Both fill the width at a fixed height (see
 # _finalize for why bare `responsive` is avoided).
@@ -110,7 +111,8 @@ def _diff_section(holoviews, panel, variable: VariablePlot):
         return panel.Column(title, difference)
 
     geoviews, features = _geoviews()
-    field, is_geo = _build_field(holoviews, geoviews, variable, variable.difference)
+    field, is_geo, rasterize_ok = _build_field(holoviews, geoviews, variable, variable.difference)
+    base = _rasterize(field) if rasterize_ok else field
     slider = panel.widgets.FloatSlider(
         name="colour limit (±)",
         start=0.0,
@@ -119,10 +121,9 @@ def _diff_section(holoviews, panel, variable: VariablePlot):
         step=_slider_end(variable) / 100.0,
     )
 
-    # `apply.opts` binds the colour limit to the slider on the *same* rasterized map, so
-    # dragging it re-clims in place without rebuilding the plot (zoom/pan preserved). The
-    # datashader RangeXY stream survives the apply, so zooming still re-aggregates.
-    styled = _rasterize(field).apply.opts(
+    # `apply.opts` binds the colour limit to the slider on the *same* map, so dragging it
+    # re-clims in place without rebuilding the plot (zoom/pan preserved).
+    styled = base.apply.opts(
         cmap=_DIFF_CMAP,
         clim=panel.bind(lambda limit: (-limit, limit), slider),
         clipping_colors=_clipping(is_geo),
@@ -157,8 +158,9 @@ def _reference_block(holoviews, panel, variable: VariablePlot):
     low, high = _shared_clim(variable.reference, variable.comparison)
     maps = []
     for values, name in ((variable.reference, "reference"), (variable.comparison, "comparison")):
-        field, is_geo = _build_field(holoviews, geoviews, variable, values)
-        styled = _rasterize(field).opts(
+        field, is_geo, rasterize_ok = _build_field(holoviews, geoviews, variable, values)
+        base = _rasterize(field) if rasterize_ok else field
+        styled = base.opts(
             cmap=_REFERENCE_CMAP,
             clim=(low, high),
             clipping_colors=_clipping(is_geo),
@@ -188,13 +190,77 @@ def _geoviews():
 
 
 def _build_field(holoviews, geoviews, variable: VariablePlot, values):
-    """Build the field element and whether it is geographic (a geoviews QuadMesh)."""
+    """Return ``(element, is_geo, rasterize_ok)`` for the field.
+
+    - **Regular lat/lon grid + geoviews** → a geoviews ``Image`` (a smooth raster, no
+      visible cells) that datashades cleanly → ``(Image, True, True)``.
+    - **Curvilinear grid + geoviews** → a geoviews ``QuadMesh`` drawn directly. datashader's
+      ``rasterize`` of a *projected* curvilinear QuadMesh renders blank in the served
+      pipeline, so it is skipped here (the vector cells stay crisp on zoom) →
+      ``(QuadMesh, True, False)``.
+    - **No geoviews** → a plain holoviews raster with grey land, datashaded →
+      ``(element, False, True)``.
+    """
     values = np.asarray(values, dtype=float)
-    if geoviews is not None:
-        quadmesh = _quadmesh(geoviews, variable.lon, variable.lat, values)
+    if geoviews is not None and variable.lon is not None and variable.lat is not None:
+        regular = _regular_1d(variable.lon, variable.lat)
+        if regular is not None:
+            lon1d, lat1d = regular
+            oriented = _orient_to_grid(lon1d, lat1d, values)
+            if oriented is not None:
+                return geoviews.Image((lon1d, lat1d, oriented), vdims=["value"]), True, True
+        quadmesh = _geo_quadmesh(geoviews, variable.lon, variable.lat, values)
         if quadmesh is not None:
-            return quadmesh, True
-    return _map(holoviews, variable, values), False
+            return quadmesh, True, False
+    return _map(holoviews, variable, values), False, True
+
+
+def _regular_1d(lon, lat):
+    """1-D (lon, lat) if the grid is rectilinear (already 1-D, or 2-D with identical rows/
+    columns), else None. Fill values on masked cells break the identity check, so such a
+    grid is treated as curvilinear — which is handled correctly, just without datashader.
+    """
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    if lon.ndim == 1 and lat.ndim == 1:
+        return lon, lat
+    if lon.ndim == 2 and lat.ndim == 2:
+        if np.allclose(lon, lon[0:1, :], atol=1e-4) and np.allclose(lat, lat[:, 0:1], atol=1e-4):
+            return lon[0, :], lat[:, 0]
+    return None
+
+
+def _orient_to_grid(lon1d, lat1d, values):
+    """``values`` transposed so its shape is ``(lat, lon)``, or None if it cannot line up."""
+    if values.shape == (lat1d.size, lon1d.size):
+        return values
+    if values.shape == (lon1d.size, lat1d.size):
+        return values.T
+    return None
+
+
+def _geo_quadmesh(geoviews, lon, lat, values):
+    """A geoviews QuadMesh (default Longitude/Latitude dims) for a curvilinear grid.
+
+    Coordinates on masked cells are blanked to NaN so NEMO ``nav_lon``/``nav_lat`` fill
+    values neither draw spurious cells nor stretch the auto-ranged extent (e.g. over the
+    Sahara). This replaces the xlim/ylim cropping, which blanks a datashaded geoviews map.
+    """
+    if lon is None or lat is None:
+        return None
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    if lon.ndim == 1 and lat.ndim == 1:
+        if values.shape == (lat.size, lon.size):
+            return geoviews.QuadMesh((lon, lat, values), vdims=["value"])
+        if values.shape == (lon.size, lat.size):
+            return geoviews.QuadMesh((lon, lat, values.T), vdims=["value"])
+    elif lon.shape == values.shape and lat.shape == values.shape:
+        masked = ~np.isfinite(values)
+        lon = np.where(masked, np.nan, lon)
+        lat = np.where(masked, np.nan, lat)
+        return geoviews.QuadMesh((lon, lat, values), vdims=["value"])
+    return None
 
 
 def _rasterize(element):
@@ -210,27 +276,28 @@ def _clipping(is_geo: bool) -> dict:
 
 
 def _finalize(holoviews, features, styled, variable: VariablePlot, height: int, is_geo: bool):
-    """Add coastlines + land and crop to the data extent (geo), or size a plain raster.
+    """Add coastlines + land (geo), or just size a plain raster.
 
-    Sizing is ``stretch_width`` + a fixed ``height`` deliberately, NOT bare ``responsive``:
-    holoviews ``responsive=True`` maps to Bokeh ``stretch_both``, which collapses to zero
-    height inside a vertically-stacked Column (the whole map goes blank). Fixed height +
-    stretch width fills the page horizontally without collapsing.
+    Sizing is ``responsive=True`` **with a fixed ``height``**, NOT bare ``responsive``:
+    holoviews ``responsive=True`` alone maps to Bokeh ``stretch_both``, which collapses to
+    zero height inside a vertically-stacked Column (the whole map goes blank). Pinning the
+    height makes it stretch in width only.
+
+    The extent is left to auto-range from the data (fill-value cells are already masked out
+    of the coordinates in ``_build_field``). Do NOT set xlim/ylim here: on a datashaded
+    geoviews overlay they collapse the axis to a degenerate range and blank the map.
     """
     if not is_geo or features is None:
         return styled.opts(responsive=True, height=height, active_tools=["wheel_zoom"])
 
-    from xdiff.plotting.spec import valid_extent
-
-    land = features.land.opts(fill_color=_LAND_FILL)
-    coastline = features.coastline.opts(line_color="black", line_width=0.5)
+    # geoviews features default to the coarse 110m Natural Earth data; use 50m so coastlines
+    # are precise (matching the static map) without the weight of the full 10m dataset.
+    land = features.land.opts(fill_color=_LAND_FILL, scale=_COASTLINE_SCALE)
+    coastline = features.coastline.opts(line_color="black", line_width=0.5, scale=_COASTLINE_SCALE)
     view = land * styled * coastline
-    overlay_opts = {"responsive": True, "height": height, "active_tools": ["wheel_zoom"]}
-    extent = valid_extent(variable)
-    if extent is not None:
-        overlay_opts["xlim"] = (extent[0], extent[1])
-        overlay_opts["ylim"] = (extent[2], extent[3])
-    return view.opts(holoviews.opts.Overlay(**overlay_opts))
+    return view.opts(
+        holoviews.opts.Overlay(responsive=True, height=height, active_tools=["wheel_zoom"])
+    )
 
 
 def _load_viz():
