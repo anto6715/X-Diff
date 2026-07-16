@@ -471,6 +471,34 @@ def test_curvilinear_land_is_not_filled_by_streaks():
     assert np.isnan(centre), "interior land aggregated to data — the streak corruption is back"
 
 
+def test_basemap_reprojects_to_web_mercator_and_overlays_tiles():
+    import holoviews as hv
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _field_element, _hero_map, _load_viz
+
+    _load_viz()
+    variable = _variable_plot(np.ones((5, 6)), lon=np.linspace(-10.0, 20.0, 6), lat=np.linspace(30.0, 45.0, 5))
+
+    plain = _field_element(hv, variable, variable.difference, web_mercator=False)
+    mercator = _field_element(hv, variable, variable.difference, web_mercator=True)
+    assert isinstance(plain, hv.Image)  # lon/lat path unchanged
+    assert isinstance(mercator, hv.QuadMesh)
+    assert mercator.dimension_values("x").max() > 1e5  # metres, not degrees
+
+    hero = _hero_map(
+        hv,
+        pn,
+        variable,
+        method="smooth",
+        basemap=True,
+        cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+        climit_widget=pn.widgets.FloatSlider(start=0.0, end=3.0, value=1.0),
+    )
+    figure = hv.render(hero.object)
+    assert any("Tile" in type(renderer).__name__ for renderer in figure.renderers), "basemap tiles missing"
+
+
 def test_metadata_reports_min_and_max_of_difference():
     import panel as pn
 

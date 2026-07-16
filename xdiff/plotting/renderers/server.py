@@ -128,21 +128,30 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     render_toggle = panel.widgets.RadioButtonGroup(
         name="Rendering", options=list(_METHODS), value=_SMOOTH, color="primary"
     )
-    map_controls = (climit, cmap_select, render_toggle)
+    # Off by default: tiles need internet (blank on an offline node), so the plain grey path
+    # stays the safe default; turning it on overlays the data on a CartoLight basemap.
+    basemap_toggle = panel.widgets.Checkbox(name="Basemap (CartoLight)", value=False)
+    map_controls = (climit, cmap_select, render_toggle, basemap_toggle)
     dims_box = panel.Column()  # sidebar "Dimensions" section, repopulated per variable
     main_holder = panel.Column(sizing_mode="stretch_width")  # main content, replaced on redraw
     state: dict = {"names": [], "selects": []}
 
     def redraw(*_events) -> None:
         # Re-slice for the current variable + dim selection and replace the main content. A
-        # dim change / variable switch / render-mode change lands here (a data change, so the
-        # plot rebuilds); colour limit and colormap are bound in place and never trigger this.
+        # dim change / variable switch / render-mode / basemap change lands here (rebuilds the
+        # plot); colour limit and colormap are bound in place and never trigger this.
         index = var_select.value
         selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
         variable = source.slice(index, selection)
         main_holder[:] = [
             _rendered_variable(
-                holoviews, panel, variable, method=render_toggle.value, cmap_widget=cmap_select, climit_widget=climit
+                holoviews,
+                panel,
+                variable,
+                method=render_toggle.value,
+                basemap=basemap_toggle.value,
+                cmap_widget=cmap_select,
+                climit_widget=climit,
             )
         ]
 
@@ -167,15 +176,16 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     rebuild_for_variable(var_select.value)
     var_select.param.watch(lambda event: rebuild_for_variable(event.new), "value")
     render_toggle.param.watch(redraw, "value")
+    basemap_toggle.param.watch(redraw, "value")
 
     return panel.template.FastListTemplate(
         title="xdiff plot",
-        sidebar=_sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle),
+        sidebar=_sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_toggle),
         main=[subtitle, main_holder],
     )
 
 
-def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle) -> list:
+def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, basemap_toggle) -> list:
     """Group the controls into labelled, divider-separated sections."""
 
     def heading(text: str):
@@ -194,6 +204,7 @@ def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle) ->
         panel.layout.Divider(),
         heading("Rendering"),
         render_toggle,
+        basemap_toggle,
     ]
 
 
@@ -207,7 +218,7 @@ def _dim_select(panel, dim: DimControl):
     return panel.widgets.Select(name=dim.name, options=options, value=dim.default)
 
 
-def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
+def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
     """Render one already-sliced variable: min/max readout, hero difference, reference card."""
     metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
@@ -217,9 +228,15 @@ def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, cmap
         reference = _reference_overlay_1d(holoviews, variable)
     else:
         hero = _hero_map(
-            holoviews, panel, variable, method=method, cmap_widget=cmap_widget, climit_widget=climit_widget
+            holoviews,
+            panel,
+            variable,
+            method=method,
+            basemap=basemap,
+            cmap_widget=cmap_widget,
+            climit_widget=climit_widget,
         )
-        reference = panel.Row(*_reference_maps(holoviews, variable), sizing_mode="stretch_width")
+        reference = panel.Row(*_reference_maps(holoviews, variable, basemap=basemap), sizing_mode="stretch_width")
     card = panel.Card(reference, title="Reference & comparison", collapsed=True, sizing_mode="stretch_width")
     return panel.Column(metadata, hero, card, sizing_mode="stretch_width")
 
@@ -233,47 +250,62 @@ def _metadata(panel, variable: VariablePlot):
     return panel.pane.Markdown(f"## {variable.label}\nunits **{units}**  ·  min **{low:.3g}**  ·  max **{high:.3g}**")
 
 
-def _hero_map(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
+def _hero_map(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
     """The hero difference map: datashaded, colormap + colour limit bound in place, zoom kept."""
-    element = _field_element(holoviews, variable, variable.difference)
+    element = _field_element(holoviews, variable, variable.difference, web_mercator=basemap)
     base = _datashaded(holoviews, element, method=method)
-    view = base.apply.opts(
+    styled = base.apply.opts(
         cmap=panel.bind(lambda name: name, cmap_widget),
         clim=panel.bind(lambda limit: (-limit, limit), climit_widget),
-        clipping_colors={"NaN": _LAND_COLOR},
+        clipping_colors=_clipping(basemap),
         colorbar=True,
         tools=["hover"],
         title="difference",
-        responsive=True,
-        height=_DIFF_HEIGHT,
-        active_tools=["wheel_zoom"],
-        **_extent(variable),
     )
-    return panel.pane.HoloViews(view)
+    return panel.pane.HoloViews(_with_basemap(holoviews, styled, variable, _DIFF_HEIGHT, basemap))
 
 
-def _reference_maps(holoviews, variable: VariablePlot):
+def _reference_maps(holoviews, variable: VariablePlot, *, basemap):
     """The secondary reference/comparison maps for one variable (viridis, shared clim)."""
     low, high = _shared_clim(variable.reference, variable.comparison)
-    extent = _extent(variable)
     maps = []
     for values, name in ((variable.reference, "reference"), (variable.comparison, "comparison")):
-        element = _field_element(holoviews, variable, values)
-        maps.append(
-            _datashaded(holoviews, element, method=_SMOOTH).opts(
-                cmap=_REFERENCE_CMAP,
-                clim=(low, high),
-                clipping_colors={"NaN": _LAND_COLOR},
-                colorbar=True,
-                tools=["hover"],
-                title=name,
-                responsive=True,
-                height=_REFERENCE_HEIGHT,
-                active_tools=["wheel_zoom"],
-                **extent,
-            )
+        element = _field_element(holoviews, variable, values, web_mercator=basemap)
+        styled = _datashaded(holoviews, element, method=_SMOOTH).opts(
+            cmap=_REFERENCE_CMAP,
+            clim=(low, high),
+            clipping_colors=_clipping(basemap),
+            colorbar=True,
+            tools=["hover"],
+            title=name,
         )
+        maps.append(_with_basemap(holoviews, styled, variable, _REFERENCE_HEIGHT, basemap))
     return maps
+
+
+def _clipping(basemap: bool) -> dict:
+    # With a basemap, masked (NaN) cells are transparent so the tiles show through; without
+    # one, they are painted grey (land) since there is nothing underneath.
+    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap else {"NaN": _LAND_COLOR}
+
+
+def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap: bool):
+    """Size the map, cropping to the data; overlay it on CartoLight tiles when ``basemap``.
+
+    Tiles are Web Mercator, so the field's coordinates were already reprojected in
+    ``_field_element`` and the extent is converted to metres here.
+    """
+    sizing = {"responsive": True, "height": height, "active_tools": ["wheel_zoom"], **_extent(variable, basemap)}
+    if not basemap:
+        return styled.opts(**sizing)
+    return (_carto_light(holoviews) * styled).opts(holoviews.opts.Overlay(**sizing))
+
+
+def _carto_light(holoviews):
+    """The muted CartoLight web-map basemap (needs internet; blank tiles if offline)."""
+    from holoviews.element.tiles import CartoLight
+
+    return CartoLight()
 
 
 def _reference_overlay_1d(holoviews, variable: VariablePlot):
@@ -290,17 +322,23 @@ def _reference_overlay_1d(holoviews, variable: VariablePlot):
     )
 
 
-def _field_element(holoviews, variable: VariablePlot, values):
+def _field_element(holoviews, variable: VariablePlot, values, *, web_mercator: bool = False):
     """A plain holoviews element for a 2-D field, ready to datashade.
 
     - **Rectilinear grid** (1-D lon/lat) → ``Image`` (datashades and interpolates cleanly).
-    - **Curvilinear grid** (2-D lon/lat) → ``QuadMesh``, with fill-value cells blanked to
-      NaN so NEMO ``nav_lon``/``nav_lat`` fills neither draw spurious cells nor stretch the
-      auto-ranged extent.
+    - **Curvilinear grid** (2-D lon/lat) → ``QuadMesh``, coordinates passed through untouched.
     - **No usable coordinates** → an index-axis ``Image``.
+
+    When ``web_mercator`` (basemap on), lon/lat are reprojected to Web Mercator metres and the
+    field is always a ``QuadMesh`` — Web Mercator northing is non-linear in latitude, so a
+    regular ``Image`` would misalign with the tiles.
     """
     values = np.asarray(values, dtype=float)
     lon, lat = variable.lon, variable.lat
+    if web_mercator and lon is not None and lat is not None:
+        mercator = _mercator_quadmesh(holoviews, np.asarray(lon, dtype=float), np.asarray(lat, dtype=float), values)
+        if mercator is not None:
+            return mercator
     if lon is not None and lat is not None:
         lon_a = np.asarray(lon, dtype=float)
         lat_a = np.asarray(lat, dtype=float)
@@ -315,6 +353,25 @@ def _field_element(holoviews, variable: VariablePlot, values):
         if quadmesh is not None:
             return quadmesh
     return holoviews.Image(values, vdims=["value"])
+
+
+def _mercator_quadmesh(holoviews, lon, lat, values):
+    """A QuadMesh with lon/lat reprojected to Web Mercator metres (to align with tiles), or None.
+
+    Rectilinear 1-D coordinates are meshed to 2-D first; datashader's ``lnglat_to_meters`` then
+    converts them elementwise. Returns None if the coordinates and values cannot be lined up.
+    """
+    from datashader.utils import lnglat_to_meters
+
+    if lon.ndim == 1 and lat.ndim == 1:
+        oriented = _orient(values, lat.size, lon.size)
+        if oriented is None:
+            return None
+        lon, lat, values = *np.meshgrid(lon, lat), oriented
+    elif not (lon.ndim == 2 and lat.ndim == 2 and lon.shape == values.shape and lat.shape == values.shape):
+        return None
+    easting, northing = lnglat_to_meters(lon, lat)
+    return holoviews.QuadMesh((easting, northing, values), kdims=["x", "y"], vdims=["value"])
 
 
 def _orient(values, n_rows: int, n_cols: int):
@@ -340,19 +397,25 @@ def _curvilinear_quadmesh(holoviews, lon, lat, values):
     return None
 
 
-def _extent(variable: VariablePlot) -> dict:
+def _extent(variable: VariablePlot, basemap: bool = False) -> dict:
     """``{'xlim': ..., 'ylim': ...}`` cropping the map to where data actually is, else ``{}``.
 
     Frames the plot tightly on the valid domain (e.g. the Mediterranean) instead of the raw
-    coordinate bounding box, which fill values on masked cells would stretch. Without geoviews
-    on this path, xlim/ylim frame the plain raster cleanly (they blanked the old geo overlay).
+    coordinate bounding box, which fill values on masked cells would stretch. With a basemap
+    the bounds are converted to Web Mercator metres to match the reprojected field and tiles.
     """
     from xdiff.plotting.spec import valid_extent
 
     extent = valid_extent(variable)
     if extent is None:
         return {}
-    return {"xlim": (extent[0], extent[1]), "ylim": (extent[2], extent[3])}
+    lon_min, lon_max, lat_min, lat_max = extent
+    if basemap:
+        from datashader.utils import lnglat_to_meters
+
+        eastings, northings = lnglat_to_meters([lon_min, lon_max], [lat_min, lat_max])
+        return {"xlim": (float(eastings[0]), float(eastings[1])), "ylim": (float(northings[0]), float(northings[1]))}
+    return {"xlim": (lon_min, lon_max), "ylim": (lat_min, lat_max)}
 
 
 def _datashaded(holoviews, element, *, method: str):
