@@ -321,86 +321,88 @@ def plot(
     Ctrl-C.
     """
     # Lazy imports keep CLI startup fast: the plotting stack loads only for `plot`.
-    from xdiff.core.main import normalize_bbox, normalize_variables
-    from xdiff.plotting.spec import build_plot_spec
+    from xdiff.core.main import normalize_bbox
 
     static = output is not None
     address = "localhost"
+
+    if static:
+        _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox)
+        return
+
+    from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available, serve
+    from xdiff.plotting.spec import open_plot_source
+
+    server_port = port if port is not None else DEFAULT_PORT
     try:
-        if static:
-            from xdiff.plotting.renderers.matplotlib_renderer import validate_output_extension
-
-            validate_output_extension(output)
-            # Static writes one image per requested variable, so keep the -v filter.
-            spec_variables = normalize_variables(variables or settings.DEFAULT_VARIABLES_TO_CHECK)
-        else:
-            from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available
-
-            server_port = port if port is not None else DEFAULT_PORT
-            # Fail fast on a busy port before doing any numeric work.
-            ensure_port_available(address, server_port)
-            # The live server lets you browse every variable, so build them all; -v only
-            # picks which one is shown first (see _prioritize_variables below).
-            spec_variables = None
-
-        spec = build_plot_spec(
+        # Fail fast on a busy port before opening any datasets.
+        ensure_port_available(address, server_port)
+        # The live server lets you browse every variable, so open them all; -v only picks
+        # which one is shown first (see _default_variable_index).
+        source = open_plot_source(
             reference_path,
             comparison_path,
-            spec_variables,
+            None,
             last_time_step=last_time_step,
             bbox=normalize_bbox(bbox),
         )
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if not static and variables:
-        spec = _prioritize_variables(spec, variables)
+    try:
+        for skipped in source.skipped:
+            click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
+        if not source.variables:
+            raise click.ClickException("no plottable variables found")
 
-    for skipped in spec.skipped:
-        click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
-
-    if static:
-        from xdiff.plotting.renderers.matplotlib_renderer import render_to_files
-
-        try:
-            written = render_to_files(spec, output)
-        except (RuntimeError, ValueError) as exc:
-            raise click.ClickException(str(exc)) from exc
-        for path in written:
-            click.echo(f"wrote {path}")
-        return
-
-    if not spec.variables:
-        raise click.ClickException("no plottable variables found")
-
-    from xdiff.plotting.renderers.server import serve
-
-    url = f"http://{address}:{server_port}"
-    click.echo(f"Serving xdiff plot at {url} (Ctrl-C to stop)")
-    if no_open:
-        click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
-    serve(spec, port=server_port, open_browser=not no_open, address=address)
+        default_index = _default_variable_index(source, variables)
+        url = f"http://{address}:{server_port}"
+        click.echo(f"Serving xdiff plot at {url} (Ctrl-C to stop)")
+        if no_open:
+            click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
+        serve(source, port=server_port, open_browser=not no_open, address=address, default_index=default_index)
+    finally:
+        source.close()
 
 
-def _prioritize_variables(spec, requested: tuple[str, ...]):
-    """Reorder ``spec.variables`` so the ``-v`` requested ones come first (the default shown).
+def _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox) -> None:
+    """Render the difference to a static image (one per requested variable) and exit."""
+    from xdiff.core.main import normalize_bbox, normalize_variables
+    from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
+    from xdiff.plotting.spec import build_plot_spec
+
+    try:
+        validate_output_extension(output)
+        # Static writes one image per requested variable, so keep the -v filter.
+        spec = build_plot_spec(
+            reference_path,
+            comparison_path,
+            normalize_variables(variables or settings.DEFAULT_VARIABLES_TO_CHECK),
+            last_time_step=last_time_step,
+            bbox=normalize_bbox(bbox),
+        )
+        for skipped in spec.skipped:
+            click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
+        written = render_to_files(spec, output)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    for path in written:
+        click.echo(f"wrote {path}")
+
+
+def _default_variable_index(source, requested: tuple[str, ...]) -> int:
+    """Index of the first ``-v`` requested variable in ``source`` (the default shown), else 0.
 
     All variables stay available in the live server's selector; this only sets which one is
-    shown first. Matches the base variable name, ignoring any ``[time=…]`` label suffix and
-    ``REF=CMP`` mapping.
+    shown first. Matches the base variable name, ignoring any ``REF=CMP`` mapping.
     """
-    from dataclasses import replace
-
+    if not requested:
+        return 0
     wanted_names = {name.split("=")[0] for name in requested}
-
-    def base_name(label: str) -> str:
-        return label.split(" [")[0].split(" -> ")[0]
-
-    front = [variable for variable in spec.variables if base_name(variable.label) in wanted_names]
-    rest = [variable for variable in spec.variables if base_name(variable.label) not in wanted_names]
-    if not front:
-        return spec
-    return replace(spec, variables=front + rest)
+    for index, handle in enumerate(source.variables):
+        if handle.label.split(" -> ")[0] in wanted_names:
+            return index
+    return 0
 
 
 if __name__ == "__main__":

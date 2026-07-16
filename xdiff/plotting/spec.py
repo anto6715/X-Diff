@@ -126,24 +126,28 @@ def reduce_to_plottable(
     horizontal_dims: set,
     *,
     last_time_step: bool,
+    selection_override: dict[str, int] | None = None,
 ) -> tuple[xr.DataArray, dict[str, int]]:
     """Collapse a field to ≤2-D, keeping the horizontal dims.
 
-    Every non-horizontal dim is selected down to a single index: the time dim (per
-    ``find_time_dims_name``) to its last step when ``last_time_step`` else its first,
-    any other extra dim (e.g. depth) to index 0. Returns the reduced array and a
-    ``{dim: selected_index}`` map of what was collapsed, so the caller can make the
-    selection visible in the label (an info log alone hides that only one layer is shown).
+    Every non-horizontal dim is selected down to a single index. ``selection_override``
+    (used by the live server's time/depth controls) pins specific indices; otherwise the
+    time dim (per ``find_time_dims_name``) goes to its last step when ``last_time_step``
+    else its first, and any other extra dim (e.g. depth) to index 0. Returns the reduced
+    array and a ``{dim: selected_index}`` map of what was collapsed.
     """
     time_name = find_time_dims_name(field.dims)
     selection: dict[str, int] = {}
     for dim in field.dims:
         if dim in horizontal_dims:
             continue
-        if dim == time_name and last_time_step:
-            selection[dim] = int(field.sizes[dim]) - 1
+        if selection_override is not None and dim in selection_override:
+            index = int(selection_override[dim])
+        elif dim == time_name and last_time_step:
+            index = int(field.sizes[dim]) - 1
         else:
-            selection[dim] = 0
+            index = 0
+        selection[dim] = max(0, min(index, int(field.sizes[dim]) - 1))  # clamp to valid range
     reduced = field.isel(selection) if selection else field
     return reduced, selection
 
@@ -159,6 +163,8 @@ def _build_variable_plot(
     horizontal_dims: set,
     *,
     last_time_step: bool,
+    selection_override: dict[str, int] | None = None,
+    decorate_label: bool = True,
 ) -> VariablePlot:
     if comparison_name not in comparison_ds:
         raise ValueError(f"{comparison_name!r} not present in comparison dataset")
@@ -166,8 +172,12 @@ def _build_variable_plot(
     reference_field = reference_ds[reference_name]
     comparison_field = comparison_ds[comparison_name]
 
-    reference_reduced, collapsed = reduce_to_plottable(reference_field, horizontal_dims, last_time_step=last_time_step)
-    comparison_reduced, _ = reduce_to_plottable(comparison_field, horizontal_dims, last_time_step=last_time_step)
+    reference_reduced, collapsed = reduce_to_plottable(
+        reference_field, horizontal_dims, last_time_step=last_time_step, selection_override=selection_override
+    )
+    comparison_reduced, _ = reduce_to_plottable(
+        comparison_field, horizontal_dims, last_time_step=last_time_step, selection_override=selection_override
+    )
 
     if reference_reduced.ndim == 0 or reference_reduced.ndim > 2:
         raise ValueError(f"no horizontal dims to plot (reduced to {reference_reduced.ndim}-D)")
@@ -195,7 +205,7 @@ def _build_variable_plot(
         # diverging colormap; fall back to the true extreme, then to a unit range.
         diff_limit = diff_extreme if diff_extreme > 0.0 else 1.0
 
-    if collapsed:
+    if collapsed and decorate_label:
         label = f"{label} [{', '.join(f'{dim}={index}' for dim, index in collapsed.items())}]"
 
     units = reference_field.attrs.get("units")
@@ -249,3 +259,166 @@ def _coordinate_values(reduced_field: xr.DataArray, name) -> np.ndarray | None:
     if name is None or name not in reduced_field.coords:
         return None
     return np.asarray(reduced_field.coords[name].values)
+
+
+# --------------------------------------------------------------------------- live (sliceable) source
+
+
+@dataclass(frozen=True)
+class DimControl:
+    """One selectable non-horizontal dimension (e.g. time or depth) of a variable."""
+
+    name: str
+    size: int
+    labels: tuple[str, ...]  # human labels per index (coordinate values, or "0".."n-1")
+    default: int  # initial index (last step for time under --last-time-step, else 0)
+
+
+@dataclass(frozen=True)
+class VariableHandle:
+    """A plottable variable in a :class:`PlotSource`, sliced on demand (no data loaded yet)."""
+
+    label: str  # base name / "ref -> cmp" (no [time=…] decoration; the controls show it)
+    is_map: bool  # reduces to 2-D (vs a 1-D profile)
+    extra_dims: tuple[DimControl, ...]  # the dims the server exposes as controls
+
+
+class PlotSource:
+    """A live source of plottable slices: keeps both datasets open and re-slices on demand.
+
+    The static renderer consumes an eager :class:`PlotSpec`; the interactive server consumes
+    this instead, so time/depth can be chosen without reducing/loading up front. Call
+    :meth:`close` when the server stops. :meth:`static` wraps an already-reduced list of
+    :class:`VariablePlot` (no open files, no extra dims) for callers/tests that don't slice.
+    """
+
+    def __init__(self, reference_path, comparison_path, variables, slicer, skipped=(), closer=None):
+        self.reference_path = Path(reference_path)
+        self.comparison_path = Path(comparison_path)
+        self.variables: list[VariableHandle] = list(variables)
+        self.skipped: list[SkippedVariable] = list(skipped)
+        self._slicer = slicer
+        self._closer = closer
+
+    def slice(self, index: int, selection: dict[str, int]) -> VariablePlot:
+        return self._slicer(index, selection)
+
+    def close(self) -> None:
+        if self._closer is not None:
+            self._closer()
+
+    @classmethod
+    def static(cls, reference_path, comparison_path, variables: list[VariablePlot]) -> PlotSource:
+        handles = [VariableHandle(label=plot.label, is_map=len(plot.dims) == 2, extra_dims=()) for plot in variables]
+        return cls(reference_path, comparison_path, handles, lambda index, _selection: variables[index])
+
+
+def open_plot_source(
+    reference_path: Path,
+    comparison_path: Path,
+    variables,
+    *,
+    last_time_step: bool,
+    bbox: BoundingBox | None,
+) -> PlotSource:
+    """Open both files (kept open) and expose their variables for on-demand slicing.
+
+    Mirrors ``build_plot_spec``'s discovery (bbox crop, horizontal-coord location, coord/0-D
+    filtering) but does NOT reduce or load data: each variable becomes a :class:`VariableHandle`
+    carrying its selectable extra dims. ``PlotSource.slice`` then produces a 2-D VariablePlot for
+    a chosen ``{dim: index}``. The caller must ``close()`` the returned source.
+    """
+    xr = load_xarray()
+    reference_raw = xr.open_dataset(reference_path)
+    comparison_raw = xr.open_dataset(comparison_path)
+    try:
+        reference_ds = crop_to_bbox(reference_raw, bbox) if bbox is not None else reference_raw
+        comparison_ds = crop_to_bbox(comparison_raw, bbox) if bbox is not None else comparison_raw
+        longitude_name, latitude_name = locate_horizontal_coords(reference_ds)
+        horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
+
+        handles: list[VariableHandle] = []
+        specs: list[tuple[str, str]] = []
+        skipped: list[SkippedVariable] = []
+        candidate_pairs = get_dataset_variables(reference_ds, variables)
+        if variables is None:
+            candidate_pairs = [pair for pair in candidate_pairs if pair[0] not in reference_ds.coords]
+
+        for reference_name, comparison_name in candidate_pairs:
+            label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+            field = reference_ds[reference_name]
+            map_dims = [dim for dim in field.dims if dim in horizontal_dims]
+            if len(map_dims) not in (1, 2):
+                skipped.append(SkippedVariable(label=label, reason=f"no horizontal dims to plot ({len(map_dims)}-D)"))
+                continue
+            if comparison_name not in comparison_ds:
+                reason = f"{comparison_name!r} not present in comparison dataset"
+                skipped.append(SkippedVariable(label=label, reason=reason))
+                continue
+            handles.append(
+                VariableHandle(
+                    label=label,
+                    is_map=len(map_dims) == 2,
+                    extra_dims=_extra_dim_controls(reference_ds, field, horizontal_dims, last_time_step=last_time_step),
+                )
+            )
+            specs.append((reference_name, comparison_name))
+    except Exception:
+        reference_raw.close()
+        comparison_raw.close()
+        raise
+
+    def slicer(index: int, selection: dict[str, int]) -> VariablePlot:
+        reference_name, comparison_name = specs[index]
+        return _build_variable_plot(
+            reference_ds,
+            comparison_ds,
+            reference_name,
+            comparison_name,
+            handles[index].label,
+            longitude_name,
+            latitude_name,
+            horizontal_dims,
+            last_time_step=last_time_step,
+            selection_override=selection,
+            decorate_label=False,
+        )
+
+    def closer() -> None:
+        reference_raw.close()
+        comparison_raw.close()
+
+    return PlotSource(reference_path, comparison_path, handles, slicer, skipped, closer)
+
+
+def _extra_dim_controls(dataset, field, horizontal_dims, *, last_time_step) -> tuple[DimControl, ...]:
+    """The non-horizontal dims of ``field`` (time/depth/…) as selectable controls."""
+    time_name = find_time_dims_name(field.dims)
+    controls: list[DimControl] = []
+    for dim in field.dims:
+        if dim in horizontal_dims:
+            continue
+        size = int(field.sizes[dim])
+        is_time = dim == time_name
+        default = size - 1 if (is_time and last_time_step) else 0
+        controls.append(DimControl(name=str(dim), size=size, labels=_dim_labels(dataset, dim, size), default=default))
+    return tuple(controls)
+
+
+def _dim_labels(dataset, dim, size) -> tuple[str, ...]:
+    """Per-index labels for a dim: its coordinate values (depths, timestamps) when present, else indices."""
+    if dim in dataset.coords:
+        values = np.asarray(dataset[dim].values)
+        if values.ndim == 1 and values.size == size:
+            return tuple(_format_coord(value) for value in values)
+    return tuple(str(index) for index in range(size))
+
+
+def _format_coord(value) -> str:
+    array = np.asarray(value)
+    if np.issubdtype(array.dtype, np.datetime64):
+        return str(np.datetime_as_string(array, unit="m"))
+    try:
+        return f"{float(array):g}"
+    except (TypeError, ValueError):
+        return str(value)

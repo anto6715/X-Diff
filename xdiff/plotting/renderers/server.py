@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from xdiff.plotting.spec import PlotSpec, VariablePlot
+    from xdiff.plotting.spec import DimControl, PlotSource, VariableHandle, VariablePlot
 
 DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Dask :8787
 
@@ -64,7 +64,7 @@ def ensure_port_available(address: str, port: int) -> None:
             ) from exc
 
 
-def build_application(spec: PlotSpec):
+def build_application(source: PlotSource, *, default_index: int = 0):
     """Return the no-arg callable Panel serves (a fresh dashboard per browser session).
 
     Deliberately a named closure, **not** ``functools.partial``: Bokeh's server
@@ -74,17 +74,19 @@ def build_application(spec: PlotSpec):
     """
 
     def application():
-        return build_dashboard(spec)
+        return build_dashboard(source, default_index=default_index)
 
     return application
 
 
-def serve(spec: PlotSpec, *, port: int, open_browser: bool, address: str = "localhost") -> None:
+def serve(
+    source: PlotSource, *, port: int, open_browser: bool, address: str = "localhost", default_index: int = 0
+) -> None:
     """Serve the dashboard at ``http://{address}:{port}`` and block until Ctrl-C."""
     _, panel = _load_viz()
     try:
         panel.serve(
-            build_application(spec),
+            build_application(source, default_index=default_index),
             port=port,
             address=address,
             show=open_browser,
@@ -95,26 +97,29 @@ def serve(spec: PlotSpec, *, port: int, open_browser: bool, address: str = "loca
         pass
 
 
-def build_dashboard(spec: PlotSpec):
+def build_dashboard(source: PlotSource, *, default_index: int = 0):
     """Compose the page (no server started) as a sidebar-driven, one-variable app.
 
     A ``FastListTemplate`` holds the controls in the sidebar — variable selector, colour-limit
     slider, colormap, smooth/blocks toggle — and the main area shows the *selected* variable:
-    a min/max readout, the hero difference map, and a collapsed reference/comparison card.
-    Building one variable at a time keeps loading fast on many-variable files. Switching
-    variable re-targets the controls; colour limit and colormap re-style the hero in place
-    (zoom kept), and the toggle re-runs the datashader interpolation.
+    a min/max readout, the time/depth controls (when the variable has extra dims), the hero
+    difference map, and a collapsed reference/comparison card. Slices are produced on demand
+    from ``source`` so time/depth can be changed live. Switching variable re-targets the
+    controls; colour limit and colormap re-style the hero in place (zoom kept), the toggle
+    re-runs the interpolation, and a time/depth change re-slices server-side.
     """
     holoviews, panel = _load_viz()
-    variables = spec.variables
-    subtitle = panel.pane.Markdown(f"`{spec.reference_path.name}` vs `{spec.comparison_path.name}`")
-    if not variables:
+    handles = source.variables
+    subtitle = panel.pane.Markdown(f"`{source.reference_path.name}` vs `{source.comparison_path.name}`")
+    if not handles:
         return panel.template.FastListTemplate(
             title="xdiff plot", main=[subtitle, panel.pane.Markdown("No plottable variables.")]
         )
 
     var_select = panel.widgets.Select(
-        name="Variable", options={variable.label: index for index, variable in enumerate(variables)}, value=0
+        name="Variable",
+        options={handle.label: index for index, handle in enumerate(handles)},
+        value=min(default_index, len(handles) - 1),
     )
     climit = panel.widgets.FloatSlider(name="colour limit (±)", start=0.0, end=1.0, value=0.5, step=0.01)
     cmap_select = panel.widgets.Select(name="Colormap", options=list(_DIFF_CMAPS), value=_DIFF_CMAP)
@@ -126,28 +131,35 @@ def build_dashboard(spec: PlotSpec):
     map_controls = (climit, cmap_select, render_toggle)
 
     def sync_controls(index: int) -> None:
-        # Colour limit is per-variable (own units/scale); re-target its bounds on switch. The
-        # map-only controls are disabled for a 1-D variable (a line has no colour map).
-        variable = variables[index]
-        is_map = len(variable.dims) == 2
-        if is_map:
+        # Colour limit is per-variable (own units/scale); re-target its bounds from the default
+        # slice on switch. Map-only controls are disabled for a 1-D variable (a line has no map).
+        handle = handles[index]
+        for widget in map_controls:
+            widget.disabled = not handle.is_map
+        if handle.is_map:
+            variable = source.slice(index, {dim.name: dim.default for dim in handle.extra_dims})
             end = _slider_end(variable)
             climit.param.update(start=0.0, end=end, value=min(variable.diff_limit, end), step=end / 100.0)
-        for widget in map_controls:
-            widget.disabled = not is_map
 
-    sync_controls(0)
+    sync_controls(var_select.value)
     var_select.param.watch(lambda event: sync_controls(event.new), "value")
 
-    def render_main(index, method):
+    def render_main(index):
         return _variable_view(
-            holoviews, panel, variables[index], method=method, cmap_widget=cmap_select, climit_widget=climit
+            holoviews,
+            panel,
+            source,
+            index,
+            handles[index],
+            render_toggle=render_toggle,
+            cmap_widget=cmap_select,
+            climit_widget=climit,
         )
 
     return panel.template.FastListTemplate(
         title="xdiff plot",
         sidebar=_sidebar(panel, var_select, climit, cmap_select, render_toggle),
-        main=[subtitle, panel.bind(render_main, var_select, render_toggle)],
+        main=[subtitle, panel.bind(render_main, var_select)],
     )
 
 
@@ -170,8 +182,39 @@ def _sidebar(panel, var_select, climit, cmap_select, render_toggle) -> list:
     ]
 
 
-def _variable_view(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
-    """The main-area view for one variable: min/max readout, hero difference, reference card."""
+def _variable_view(
+    holoviews, panel, source, index, handle: VariableHandle, *, render_toggle, cmap_widget, climit_widget
+):
+    """The main-area view for one variable, re-slicing on its time/depth controls.
+
+    The dimension controls (one per extra dim) live here — created per variable, so switching
+    variable rebuilds them, and moving one re-slices ``source`` server-side. The render mode
+    (smooth/blocks) also feeds the slice render, so toggling it never rebuilds the controls.
+    """
+    dim_names = [dim.name for dim in handle.extra_dims]
+    dim_sliders = [_dim_slider(panel, dim) for dim in handle.extra_dims]
+
+    def render_slice(method, *indices):
+        variable = source.slice(index, dict(zip(dim_names, indices, strict=True)))
+        return _rendered_variable(
+            holoviews, panel, variable, method=method, cmap_widget=cmap_widget, climit_widget=climit_widget
+        )
+
+    body = panel.bind(render_slice, render_toggle, *dim_sliders)
+    if not dim_sliders:
+        return panel.Column(body, sizing_mode="stretch_width")
+    controls = panel.Row(*dim_sliders)
+    return panel.Column(controls, body, sizing_mode="stretch_width")
+
+
+def _dim_slider(panel, dim: DimControl):
+    """A labelled discrete slider stepping through one dimension's values (time, depth, …)."""
+    options = {label: index for index, label in enumerate(dim.labels)}
+    return panel.widgets.DiscreteSlider(name=dim.name, options=options, value=dim.default)
+
+
+def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
+    """Render one already-sliced variable: min/max readout, hero difference, reference card."""
     metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
         hero = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(

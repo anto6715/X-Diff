@@ -14,12 +14,18 @@ from xdiff.plotting.renderers.matplotlib_renderer import (
     validate_output_extension,
 )
 from xdiff.plotting.spec import (
+    PlotSource,
     PlotSpec,
     SkippedVariable,
     VariablePlot,
     build_plot_spec,
     reduce_to_plottable,
 )
+
+
+def _static_source(spec: PlotSpec) -> PlotSource:
+    """Wrap a ready PlotSpec as a (non-slicing) PlotSource for the server functions."""
+    return PlotSource.static(spec.reference_path, spec.comparison_path, spec.variables)
 
 
 def _rectilinear_dataset(field, *, name="sst", lon=None, lat=None, extra_dims=None, attrs=None):
@@ -323,6 +329,71 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
+def test_open_plot_source_exposes_extra_dims_and_slices(tmp_path):
+    from xdiff.plotting.spec import open_plot_source
+
+    nt, nz, ny, nx = 2, 3, 4, 5
+    depth = np.array([1.0, 10.0, 100.0])
+    coords = {
+        "lon": ("lon", np.arange(nx, dtype=float)),
+        "lat": ("lat", np.arange(ny, dtype=float)),
+        "depth": ("depth", depth),
+    }
+
+    def dataset(per_depth):
+        field = np.zeros((nt, nz, ny, nx))
+        for level in range(nz):
+            field[:, level] = per_depth * level  # difference will scale with depth level
+        return xr.Dataset({"thetao": (("time", "depth", "lat", "lon"), field)}, coords=coords)
+
+    ref = _write(tmp_path / "ref.nc", dataset(0.0))
+    cmp = _write(tmp_path / "cmp.nc", dataset(1.0))  # ref - cmp = -level at each depth
+
+    source = open_plot_source(ref, cmp, None, last_time_step=False, bbox=None)
+    try:
+        handle = source.variables[0]
+        assert handle.is_map
+        dims = {control.name: control for control in handle.extra_dims}
+        assert set(dims) == {"time", "depth"}
+        assert dims["depth"].size == nz
+        assert dims["depth"].labels == ("1", "10", "100")  # coordinate values, not indices
+
+        shallow = source.slice(0, {"time": 0, "depth": 0})
+        deep = source.slice(0, {"time": 0, "depth": 2})
+        assert shallow.label == "thetao"  # no [time=…, depth=…] decoration in server mode
+        assert shallow.dims == ("lat", "lon")
+        assert np.nanmean(shallow.difference) == pytest.approx(0.0)
+        assert np.nanmean(deep.difference) == pytest.approx(-2.0)
+    finally:
+        source.close()
+
+
+def test_open_plot_source_skips_bounds_and_coordinate_variables(tmp_path):
+    from xdiff.plotting.spec import open_plot_source
+
+    def dataset():
+        return xr.Dataset(
+            {
+                "thetao": (("lat", "lon"), np.ones((4, 5))),
+                "deptht_bounds": (("deptht", "axis_nbounds"), np.zeros((3, 2))),
+            },
+            coords={
+                "lon": ("lon", np.arange(5.0)),
+                "lat": ("lat", np.arange(4.0)),
+                "deptht": ("deptht", np.arange(3.0)),
+            },
+        )
+
+    ref = _write(tmp_path / "ref.nc", dataset())
+    cmp = _write(tmp_path / "cmp.nc", dataset())
+
+    source = open_plot_source(ref, cmp, None, last_time_step=False, bbox=None)
+    try:
+        assert [handle.label for handle in source.variables] == ["thetao"]  # no bounds, no lon/lat
+    finally:
+        source.close()
+
+
 def test_build_dashboard_sidebar_variable_selector_lists_all_variables():
     import panel as pn
 
@@ -335,7 +406,7 @@ def test_build_dashboard_sidebar_variable_selector_lists_all_variables():
         [],
     )
 
-    dashboard = build_dashboard(spec)
+    dashboard = build_dashboard(_static_source(spec))
 
     assert isinstance(dashboard, pn.template.FastListTemplate)
     variable_select = next(
@@ -350,7 +421,7 @@ def test_build_dashboard_disables_map_controls_for_1d_variable():
     from xdiff.plotting.renderers.server import build_dashboard
 
     spec = PlotSpec(Path("ref.nc"), Path("cmp.nc"), [_variable_plot(np.arange(6.0), label="profile")], [])
-    dashboard = build_dashboard(spec)
+    dashboard = build_dashboard(_static_source(spec))
 
     toggles = [w for w in dashboard.sidebar.objects if isinstance(w, pn.widgets.RadioButtonGroup)]
     assert toggles and all(w.disabled for w in toggles)
@@ -364,7 +435,7 @@ def test_build_dashboard_constructs_curvilinear_quadmesh():
     lon2d = np.tile(np.arange(4.0), (3, 1))
     lat2d = np.tile(np.arange(3.0)[:, None], (1, 4))
     variable = _variable_plot(np.ones((3, 4)), lon=lon2d, lat=lat2d)
-    dashboard = build_dashboard(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [variable], []))
+    dashboard = build_dashboard(_static_source(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [variable], [])))
 
     assert isinstance(dashboard, pn.template.FastListTemplate)
 
@@ -462,7 +533,7 @@ def test_serving_delivers_plot_glyphs_to_a_session():
     )
     port = _free_port()
     server = pn.serve(
-        build_application(spec),
+        build_application(_static_source(spec)),
         port=port,
         address="localhost",
         show=False,
