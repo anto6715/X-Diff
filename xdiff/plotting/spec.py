@@ -88,7 +88,13 @@ def build_plot_spec(
         longitude_name, latitude_name = locate_horizontal_coords(reference_ds)
         horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
 
-        for reference_name, comparison_name in get_dataset_variables(reference_ds, variables):
+        candidate_pairs = get_dataset_variables(reference_ds, variables)
+        if variables is None:
+            # "All variables" also returns dims/coords (lon/lat/time); plotting those as
+            # difference fields is meaningless, so keep only the actual data variables.
+            candidate_pairs = [pair for pair in candidate_pairs if pair[0] not in reference_ds.coords]
+
+        for reference_name, comparison_name in candidate_pairs:
             label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
             try:
                 plots.append(

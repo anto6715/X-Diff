@@ -5,6 +5,11 @@ Lifecycle differs from the static renderer — ``serve`` starts a Bokeh server b
 the running process; the browser talks to it over a websocket, so the diff colour limit
 can be adjusted live with no recompute. Nothing is written to disk. Heavy imports
 (holoviews/panel/bokeh) are lazy, mirroring ``load_xarray`` and the Dask runtime.
+
+Fields are datashaded (``regrid``/``rasterize``) so they re-aggregate server-side on
+zoom and scale to large grids. There is no map projection or coastline layer: the data's
+own NaN mask draws the land implicitly, which keeps loading fast and the dependency set
+small (no cartopy/geoviews).
 """
 
 from __future__ import annotations
@@ -21,17 +26,25 @@ DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Da
 
 _REFERENCE_CMAP = "viridis"
 _DIFF_CMAP = "RdBu_r"
-# When geoviews draws a coastline map, land is a filled feature in this colour (matching
-# the static/mtplot look) and the data NaNs fall through transparently. Without geoviews
-# (no coastline data), NaN cells are painted this neutral grey instead.
-_LAND_FILL = "#e8e6d8"
+# Diverging colormaps offered for the difference (centred at 0). RdBu_r is the default.
+_DIFF_CMAPS = ("RdBu_r", "coolwarm", "seismic", "bwr", "PuOr_r")
+# NaN cells (land / masked) are painted this neutral grey. On the diverging diff colormap
+# white already means "no difference", so leaving NaN white would be ambiguous.
 _LAND_COLOR = "#b0b0b0"
-_COASTLINE_SCALE = "50m"  # Natural Earth resolution; 110m (geoviews default) is too coarse
 # The difference is the hero, so it gets more height; reference/comparison are secondary
-# (revealed on demand in a collapsed card). Both fill the width at a fixed height (see
-# _finalize for why bare `responsive` is avoided).
-_DIFF_HEIGHT = 460
-_REFERENCE_HEIGHT = 300
+# (revealed on demand in a collapsed card). Both stretch to the page width at a fixed
+# height (a bare responsive/stretch_both collapses to zero height in a Column). The height
+# is generous so the map is not a thin band; `data_aspect` is deliberately NOT set — it
+# fights responsive width (holoviews disables responsive when height+aspect are both fixed).
+_DIFF_HEIGHT = 620
+_REFERENCE_HEIGHT = 320
+
+# Rendering styles offered by the difference toggle: "smooth" interpolates between cell
+# centres (linear), "blocks" shows the faithful grid cells (nearest). The reference and
+# comparison maps are always smooth.
+_SMOOTH = "smooth"
+_BLOCKS = "blocks"
+_METHODS = (_SMOOTH, _BLOCKS)
 
 
 def ensure_port_available(address: str, port: int) -> None:
@@ -83,221 +96,240 @@ def serve(spec: PlotSpec, *, port: int, open_browser: bool, address: str = "loca
 
 
 def build_dashboard(spec: PlotSpec):
-    """Compose the page (no server started): difference maps are the hero.
+    """Compose the page (no server started) as a sidebar-driven, one-variable app.
 
-    Layout: a header, then one large **difference** plot per variable (2-D map with a live
-    colour-limit slider, or 1-D line). The reference and comparison maps — secondary — go
-    into a single collapsed card at the bottom, revealed on demand.
+    A ``FastListTemplate`` holds the controls in the sidebar — variable selector, colour-limit
+    slider, colormap, smooth/blocks toggle — and the main area shows the *selected* variable:
+    a min/max readout, the hero difference map, and a collapsed reference/comparison card.
+    Building one variable at a time keeps loading fast on many-variable files. Switching
+    variable re-targets the controls; colour limit and colormap re-style the hero in place
+    (zoom kept), and the toggle re-runs the datashader interpolation.
     """
     holoviews, panel = _load_viz()
-    header = panel.pane.Markdown(f"# xdiff plot\n`{spec.reference_path.name}` vs `{spec.comparison_path.name}`")
-    diff_sections = [_diff_section(holoviews, panel, variable) for variable in spec.variables]
-    reference_card = panel.Card(
-        *(_reference_block(holoviews, panel, variable) for variable in spec.variables),
-        title="Reference & comparison maps",
-        collapsed=True,
-        sizing_mode="stretch_width",
+    variables = spec.variables
+    subtitle = panel.pane.Markdown(f"`{spec.reference_path.name}` vs `{spec.comparison_path.name}`")
+    if not variables:
+        return panel.template.FastListTemplate(
+            title="xdiff plot", main=[subtitle, panel.pane.Markdown("No plottable variables.")]
+        )
+
+    var_select = panel.widgets.Select(
+        name="Variable", options={variable.label: index for index, variable in enumerate(variables)}, value=0
     )
-    return panel.Column(header, *diff_sections, reference_card)
+    climit = panel.widgets.FloatSlider(name="colour limit (±)", start=0.0, end=1.0, value=0.5, step=0.01)
+    cmap_select = panel.widgets.Select(name="Colormap", options=list(_DIFF_CMAPS), value=_DIFF_CMAP)
+    # color="primary" highlights the active mode (the selected button is filled), so it is
+    # clear at a glance which of smooth/blocks is applied without toggling to compare.
+    render_toggle = panel.widgets.RadioButtonGroup(
+        name="Rendering", options=list(_METHODS), value=_SMOOTH, color="primary"
+    )
+    map_controls = (climit, cmap_select, render_toggle)
+
+    def sync_controls(index: int) -> None:
+        # Colour limit is per-variable (own units/scale); re-target its bounds on switch. The
+        # map-only controls are disabled for a 1-D variable (a line has no colour map).
+        variable = variables[index]
+        is_map = len(variable.dims) == 2
+        if is_map:
+            end = _slider_end(variable)
+            climit.param.update(start=0.0, end=end, value=min(variable.diff_limit, end), step=end / 100.0)
+        for widget in map_controls:
+            widget.disabled = not is_map
+
+    sync_controls(0)
+    var_select.param.watch(lambda event: sync_controls(event.new), "value")
+
+    def render_main(index, method):
+        return _variable_view(
+            holoviews, panel, variables[index], method=method, cmap_widget=cmap_select, climit_widget=climit
+        )
+
+    return panel.template.FastListTemplate(
+        title="xdiff plot",
+        sidebar=_sidebar(panel, var_select, climit, cmap_select, render_toggle),
+        main=[subtitle, panel.bind(render_main, var_select, render_toggle)],
+    )
 
 
-def _diff_section(holoviews, panel, variable: VariablePlot):
-    """The hero difference plot for one variable (with a live colour slider when 2-D)."""
-    title = panel.pane.Markdown(f"## {variable.label}")
+def _sidebar(panel, var_select, climit, cmap_select, render_toggle) -> list:
+    """Group the controls into labelled, divider-separated sections (Variable / Colour / Rendering)."""
+
+    def heading(text: str):
+        return panel.pane.Markdown(f"#### {text}", margin=(4, 10, -6, 10))
+
+    return [
+        heading("Variable"),
+        var_select,
+        panel.layout.Divider(),
+        heading("Colour"),
+        climit,
+        cmap_select,
+        panel.layout.Divider(),
+        heading("Rendering"),
+        render_toggle,
+    ]
+
+
+def _variable_view(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
+    """The main-area view for one variable: min/max readout, hero difference, reference card."""
+    metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
-        difference = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
+        hero = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
             color="red", title="difference", tools=["hover"], responsive=True, height=_DIFF_HEIGHT
         )
-        return panel.Column(title, difference)
+        reference = _reference_overlay_1d(holoviews, variable)
+    else:
+        hero = _hero_map(
+            holoviews, panel, variable, method=method, cmap_widget=cmap_widget, climit_widget=climit_widget
+        )
+        reference = panel.Row(*_reference_maps(holoviews, variable), sizing_mode="stretch_width")
+    card = panel.Card(reference, title="Reference & comparison", collapsed=True, sizing_mode="stretch_width")
+    return panel.Column(metadata, hero, card, sizing_mode="stretch_width")
 
-    geoviews, features = _geoviews()
-    field, is_geo, rasterize_ok = _build_field(holoviews, geoviews, variable, variable.difference)
-    base = _rasterize(field) if rasterize_ok else field
-    slider = panel.widgets.FloatSlider(
-        name="colour limit (±)",
-        start=0.0,
-        end=_slider_end(variable),
-        value=variable.diff_limit,
-        step=_slider_end(variable) / 100.0,
-    )
 
-    # `apply.opts` binds the colour limit to the slider on the *same* map, so dragging it
-    # re-clims in place without rebuilding the plot (zoom/pan preserved).
-    styled = base.apply.opts(
-        cmap=_DIFF_CMAP,
-        clim=panel.bind(lambda limit: (-limit, limit), slider),
-        clipping_colors=_clipping(is_geo),
+def _metadata(panel, variable: VariablePlot):
+    """The min/max readout — the true magnitude of the difference, not the slider's clip."""
+    difference = np.asarray(variable.difference, dtype=float)
+    low = float(np.nanmin(difference))
+    high = float(np.nanmax(difference))
+    units = variable.units or "—"
+    return panel.pane.Markdown(f"## {variable.label}\nunits **{units}**  ·  min **{low:.3g}**  ·  max **{high:.3g}**")
+
+
+def _hero_map(holoviews, panel, variable: VariablePlot, *, method, cmap_widget, climit_widget):
+    """The hero difference map: datashaded, colormap + colour limit bound in place, zoom kept."""
+    element = _field_element(holoviews, variable, variable.difference)
+    base = _datashaded(holoviews, element, method=method)
+    view = base.apply.opts(
+        cmap=panel.bind(lambda name: name, cmap_widget),
+        clim=panel.bind(lambda limit: (-limit, limit), climit_widget),
+        clipping_colors={"NaN": _LAND_COLOR},
         colorbar=True,
         tools=["hover"],
         title="difference",
+        responsive=True,
+        height=_DIFF_HEIGHT,
+        active_tools=["wheel_zoom"],
+        **_extent(variable),
     )
-    view = _finalize(holoviews, features, styled, variable, _DIFF_HEIGHT, is_geo)
-    return panel.Column(title, slider, panel.pane.HoloViews(view))
+    return panel.pane.HoloViews(view)
 
 
-def _reference_block(holoviews, panel, variable: VariablePlot):
-    """The secondary reference/comparison view for one variable (goes in the bottom card)."""
-    heading = panel.pane.Markdown(f"**{variable.label}**")
-    if len(variable.dims) != 2:
-        axis = _axis_1d(variable)
-        overlay = (
-            holoviews.Curve((axis, variable.reference), label="reference")
-            * holoviews.Curve((axis, variable.comparison), label="comparison")
-        ).opts(
-            holoviews.opts.Curve(tools=["hover"]),
-            holoviews.opts.Overlay(
-                legend_position="top_right",
-                title="reference vs comparison",
-                responsive=True,
-                height=_REFERENCE_HEIGHT,
-            ),
-        )
-        return panel.Column(heading, overlay)
-
-    geoviews, features = _geoviews()
+def _reference_maps(holoviews, variable: VariablePlot):
+    """The secondary reference/comparison maps for one variable (viridis, shared clim)."""
     low, high = _shared_clim(variable.reference, variable.comparison)
+    extent = _extent(variable)
     maps = []
     for values, name in ((variable.reference, "reference"), (variable.comparison, "comparison")):
-        field, is_geo, rasterize_ok = _build_field(holoviews, geoviews, variable, values)
-        base = _rasterize(field) if rasterize_ok else field
-        styled = base.opts(
-            cmap=_REFERENCE_CMAP,
-            clim=(low, high),
-            clipping_colors=_clipping(is_geo),
-            colorbar=True,
-            tools=["hover"],
-            title=name,
+        element = _field_element(holoviews, variable, values)
+        maps.append(
+            _datashaded(holoviews, element, method=_SMOOTH).opts(
+                cmap=_REFERENCE_CMAP,
+                clim=(low, high),
+                clipping_colors={"NaN": _LAND_COLOR},
+                colorbar=True,
+                tools=["hover"],
+                title=name,
+                responsive=True,
+                height=_REFERENCE_HEIGHT,
+                active_tools=["wheel_zoom"],
+                **extent,
+            )
         )
-        maps.append(_finalize(holoviews, features, styled, variable, _REFERENCE_HEIGHT, is_geo))
-    return panel.Column(heading, panel.Row(*maps))
+    return maps
 
 
-def _geoviews():
-    """Return (geoviews, geoviews.feature) if importable, else (None, None).
-
-    geoviews gives the maps a PlateCarree projection with coastlines and a filled land
-    feature (the mtplot look). Absent or unable to reach its coastline data, the maps fall
-    back to plain lon/lat rasters with grey land.
-    """
-    try:
-        import geoviews
-        import geoviews.feature as features
-
-        geoviews.extension("bokeh")
-        return geoviews, features
-    except Exception:  # noqa: BLE001 - geoviews/cartopy absent or broken -> plain maps
-        return None, None
+def _reference_overlay_1d(holoviews, variable: VariablePlot):
+    """The 1-D reference-vs-comparison overlay (goes in the collapsed card)."""
+    axis = _axis_1d(variable)
+    return (
+        holoviews.Curve((axis, variable.reference), label="reference")
+        * holoviews.Curve((axis, variable.comparison), label="comparison")
+    ).opts(
+        holoviews.opts.Curve(tools=["hover"]),
+        holoviews.opts.Overlay(
+            legend_position="top_right", title="reference vs comparison", responsive=True, height=_REFERENCE_HEIGHT
+        ),
+    )
 
 
-def _build_field(holoviews, geoviews, variable: VariablePlot, values):
-    """Return ``(element, is_geo, rasterize_ok)`` for the field.
+def _field_element(holoviews, variable: VariablePlot, values):
+    """A plain holoviews element for a 2-D field, ready to datashade.
 
-    - **Regular lat/lon grid + geoviews** → a geoviews ``Image`` (a smooth raster, no
-      visible cells) that datashades cleanly → ``(Image, True, True)``.
-    - **Curvilinear grid + geoviews** → a geoviews ``QuadMesh`` drawn directly. datashader's
-      ``rasterize`` of a *projected* curvilinear QuadMesh renders blank in the served
-      pipeline, so it is skipped here (the vector cells stay crisp on zoom) →
-      ``(QuadMesh, True, False)``.
-    - **No geoviews** → a plain holoviews raster with grey land, datashaded →
-      ``(element, False, True)``.
+    - **Rectilinear grid** (1-D lon/lat) → ``Image`` (datashades and interpolates cleanly).
+    - **Curvilinear grid** (2-D lon/lat) → ``QuadMesh``, with fill-value cells blanked to
+      NaN so NEMO ``nav_lon``/``nav_lat`` fills neither draw spurious cells nor stretch the
+      auto-ranged extent.
+    - **No usable coordinates** → an index-axis ``Image``.
     """
     values = np.asarray(values, dtype=float)
-    if geoviews is not None and variable.lon is not None and variable.lat is not None:
-        regular = _regular_1d(variable.lon, variable.lat)
-        if regular is not None:
-            lon1d, lat1d = regular
-            oriented = _orient_to_grid(lon1d, lat1d, values)
+    lon, lat = variable.lon, variable.lat
+    if lon is not None and lat is not None:
+        lon_a = np.asarray(lon, dtype=float)
+        lat_a = np.asarray(lat, dtype=float)
+        if lon_a.ndim == 1 and lat_a.ndim == 1:
+            oriented = _orient(values, lat_a.size, lon_a.size)
             if oriented is not None:
-                return geoviews.Image((lon1d, lat1d, oriented), vdims=["value"]), True, True
-        quadmesh = _geo_quadmesh(geoviews, variable.lon, variable.lat, values)
+                try:
+                    return holoviews.Image((lon_a, lat_a, oriented), kdims=["lon", "lat"], vdims=["value"])
+                except Exception:  # noqa: BLE001 - irregular 1-D sampling -> QuadMesh handles it
+                    return holoviews.QuadMesh((lon_a, lat_a, oriented), kdims=["lon", "lat"], vdims=["value"])
+        quadmesh = _curvilinear_quadmesh(holoviews, lon_a, lat_a, values)
         if quadmesh is not None:
-            return quadmesh, True, False
-    return _map(holoviews, variable, values), False, True
+            return quadmesh
+    return holoviews.Image(values, vdims=["value"])
 
 
-def _regular_1d(lon, lat):
-    """1-D (lon, lat) if the grid is rectilinear (already 1-D, or 2-D with identical rows/
-    columns), else None. Fill values on masked cells break the identity check, so such a
-    grid is treated as curvilinear — which is handled correctly, just without datashader.
-    """
-    lon = np.asarray(lon, dtype=float)
-    lat = np.asarray(lat, dtype=float)
-    if lon.ndim == 1 and lat.ndim == 1:
-        return lon, lat
-    if lon.ndim == 2 and lat.ndim == 2:
-        if np.allclose(lon, lon[0:1, :], atol=1e-4) and np.allclose(lat, lat[:, 0:1], atol=1e-4):
-            return lon[0, :], lat[:, 0]
-    return None
-
-
-def _orient_to_grid(lon1d, lat1d, values):
-    """``values`` transposed so its shape is ``(lat, lon)``, or None if it cannot line up."""
-    if values.shape == (lat1d.size, lon1d.size):
+def _orient(values, n_rows: int, n_cols: int):
+    """``values`` shaped ``(n_rows, n_cols)`` (transposing if needed), or None if it cannot."""
+    if values.shape == (n_rows, n_cols):
         return values
-    if values.shape == (lon1d.size, lat1d.size):
+    if values.shape == (n_cols, n_rows):
         return values.T
     return None
 
 
-def _geo_quadmesh(geoviews, lon, lat, values):
-    """A geoviews QuadMesh (default Longitude/Latitude dims) for a curvilinear grid.
+def _curvilinear_quadmesh(holoviews, lon, lat, values):
+    """A QuadMesh for a 2-D (curvilinear) lon/lat grid, or None if the shapes disagree.
 
-    Coordinates on masked cells are blanked to NaN so NEMO ``nav_lon``/``nav_lat`` fill
-    values neither draw spurious cells nor stretch the auto-ranged extent (e.g. over the
-    Sahara). This replaces the xlim/ylim cropping, which blanks a datashaded geoviews map.
+    The coordinates are passed through UNTOUCHED. NaN-ing the vertices of masked cells
+    corrupts a *structured* QuadMesh: datashader draws quads spanning the holes, producing
+    diagonal streaks across the domain on real grids (e.g. NEMO's 2-D ``nav_lon``/``nav_lat``
+    with interior land). Land is masked by the NaN *values* instead, which datashader renders
+    as NaN pixels — painted grey via ``clipping_colors``.
     """
-    if lon is None or lat is None:
-        return None
-    lon = np.asarray(lon, dtype=float)
-    lat = np.asarray(lat, dtype=float)
-    if lon.ndim == 1 and lat.ndim == 1:
-        if values.shape == (lat.size, lon.size):
-            return geoviews.QuadMesh((lon, lat, values), vdims=["value"])
-        if values.shape == (lon.size, lat.size):
-            return geoviews.QuadMesh((lon, lat, values.T), vdims=["value"])
-    elif lon.shape == values.shape and lat.shape == values.shape:
-        masked = ~np.isfinite(values)
-        lon = np.where(masked, np.nan, lon)
-        lat = np.where(masked, np.nan, lat)
-        return geoviews.QuadMesh((lon, lat, values), vdims=["value"])
+    if lon.ndim == 2 and lat.ndim == 2 and lon.shape == values.shape and lat.shape == values.shape:
+        return holoviews.QuadMesh((lon, lat, values), kdims=["lon", "lat"], vdims=["value"])
     return None
 
 
-def _rasterize(element):
-    from holoviews.operation.datashader import rasterize
+def _extent(variable: VariablePlot) -> dict:
+    """``{'xlim': ..., 'ylim': ...}`` cropping the map to where data actually is, else ``{}``.
 
-    return rasterize(element)
-
-
-def _clipping(is_geo: bool) -> dict:
-    # Geographic maps draw a filled land feature, so NaN cells fall through transparently;
-    # plain maps have no land feature, so NaN is painted grey.
-    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if is_geo else {"NaN": _LAND_COLOR}
-
-
-def _finalize(holoviews, features, styled, variable: VariablePlot, height: int, is_geo: bool):
-    """Add coastlines + land (geo), or just size a plain raster.
-
-    Sizing is ``responsive=True`` **with a fixed ``height``**, NOT bare ``responsive``:
-    holoviews ``responsive=True`` alone maps to Bokeh ``stretch_both``, which collapses to
-    zero height inside a vertically-stacked Column (the whole map goes blank). Pinning the
-    height makes it stretch in width only.
-
-    The extent is left to auto-range from the data (fill-value cells are already masked out
-    of the coordinates in ``_build_field``). Do NOT set xlim/ylim here: on a datashaded
-    geoviews overlay they collapse the axis to a degenerate range and blank the map.
+    Frames the plot tightly on the valid domain (e.g. the Mediterranean) instead of the raw
+    coordinate bounding box, which fill values on masked cells would stretch. Without geoviews
+    on this path, xlim/ylim frame the plain raster cleanly (they blanked the old geo overlay).
     """
-    if not is_geo or features is None:
-        return styled.opts(responsive=True, height=height, active_tools=["wheel_zoom"])
+    from xdiff.plotting.spec import valid_extent
 
-    # geoviews features default to the coarse 110m Natural Earth data; use 50m so coastlines
-    # are precise (matching the static map) without the weight of the full 10m dataset.
-    land = features.land.opts(fill_color=_LAND_FILL, scale=_COASTLINE_SCALE)
-    coastline = features.coastline.opts(line_color="black", line_width=0.5, scale=_COASTLINE_SCALE)
-    view = land * styled * coastline
-    return view.opts(
-        holoviews.opts.Overlay(responsive=True, height=height, active_tools=["wheel_zoom"])
-    )
+    extent = valid_extent(variable)
+    if extent is None:
+        return {}
+    return {"xlim": (extent[0], extent[1]), "ylim": (extent[2], extent[3])}
+
+
+def _datashaded(holoviews, element, *, method: str):
+    """Datashade ``element`` so it re-aggregates on zoom, at the given interpolation.
+
+    ``smooth`` interpolates between cell centres (linear); ``blocks`` keeps the faithful
+    grid cells (nearest). A QuadMesh is first rasterized to a regular grid, then regridded
+    so the interpolation choice applies uniformly to rectilinear and curvilinear data.
+    """
+    from holoviews.operation.datashader import rasterize, regrid
+
+    interpolation = "linear" if method == _SMOOTH else "nearest"
+    base = rasterize(element) if isinstance(element, holoviews.QuadMesh) else element
+    return regrid(base, interpolation=interpolation, upsample=True)
 
 
 def _load_viz():
@@ -341,31 +373,10 @@ def _configure_bokeh_backend(holoviews, panel) -> None:
 
     warnings.filterwarnings("ignore", category=FutureWarning, module=r"dask\.dataframe")
 
-
-def _map(module, variable: VariablePlot, values):
-    """Build a 2-D map element (non-geographic): QuadMesh if lon/lat line up, else Image.
-
-    ``module`` is holoviews here; ``rasterize`` (applied by the caller) re-aggregates it on
-    zoom. The geographic path uses a geoviews QuadMesh instead (see ``_build_field``).
-    """
-    values = np.asarray(values, dtype=float)
-    quadmesh = _quadmesh(module, variable.lon, variable.lat, values)
-    return quadmesh if quadmesh is not None else module.Image(values, vdims=["value"])
-
-
-def _quadmesh(module, lon, lat, values):
-    """A QuadMesh (holoviews or geoviews) using lon/lat when their shapes line up, else None."""
-    if lon is None or lat is None:
-        return None
-    kdims = ["lon", "lat"]
-    if lon.ndim == 1 and lat.ndim == 1:
-        if values.shape == (lat.size, lon.size):
-            return module.QuadMesh((lon, lat, values), kdims=kdims, vdims=["value"])
-        if values.shape == (lon.size, lat.size):
-            return module.QuadMesh((lon, lat, values.T), kdims=kdims, vdims=["value"])
-    elif lon.shape == values.shape and lat.shape == values.shape:
-        return module.QuadMesh((lon, lat, values), kdims=kdims, vdims=["value"])
-    return None
+    # If a grid stores non-finite fill values in its 2-D coordinates, datashader casts them
+    # to int while aggregating the QuadMesh and emits this benign RuntimeWarning on every
+    # re-aggregation (i.e. every zoom). Those cells still render correctly; silence the noise.
+    warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"datashader\.glyphs\.quadmesh")
 
 
 def _axis_1d(variable: VariablePlot) -> np.ndarray:

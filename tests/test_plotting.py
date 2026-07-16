@@ -323,7 +323,9 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def test_build_dashboard_has_one_diff_section_per_variable():
+def test_build_dashboard_sidebar_variable_selector_lists_all_variables():
+    import panel as pn
+
     from xdiff.plotting.renderers.server import build_dashboard
 
     spec = PlotSpec(
@@ -335,24 +337,28 @@ def test_build_dashboard_has_one_diff_section_per_variable():
 
     dashboard = build_dashboard(spec)
 
-    # Header + one hero difference section per variable + one bottom card (reference/comparison).
-    assert len(dashboard) == 1 + len(spec.variables) + 1
+    assert isinstance(dashboard, pn.template.FastListTemplate)
+    variable_select = next(
+        w for w in dashboard.sidebar.objects if isinstance(w, pn.widgets.Select) and w.name == "Variable"
+    )
+    assert set(variable_select.options) == {"thetao", "profile"}
 
 
-def test_build_dashboard_last_child_is_collapsed_reference_card():
+def test_build_dashboard_disables_map_controls_for_1d_variable():
     import panel as pn
 
     from xdiff.plotting.renderers.server import build_dashboard
 
-    spec = PlotSpec(Path("ref.nc"), Path("cmp.nc"), [_variable_plot(np.ones((5, 5)))], [])
+    spec = PlotSpec(Path("ref.nc"), Path("cmp.nc"), [_variable_plot(np.arange(6.0), label="profile")], [])
     dashboard = build_dashboard(spec)
 
-    card = dashboard[-1]
-    assert isinstance(card, pn.Card)
-    assert card.collapsed is True
+    toggles = [w for w in dashboard.sidebar.objects if isinstance(w, pn.widgets.RadioButtonGroup)]
+    assert toggles and all(w.disabled for w in toggles)
 
 
 def test_build_dashboard_constructs_curvilinear_quadmesh():
+    import panel as pn
+
     from xdiff.plotting.renderers.server import build_dashboard
 
     lon2d = np.tile(np.arange(4.0), (3, 1))
@@ -360,7 +366,50 @@ def test_build_dashboard_constructs_curvilinear_quadmesh():
     variable = _variable_plot(np.ones((3, 4)), lon=lon2d, lat=lat2d)
     dashboard = build_dashboard(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [variable], []))
 
-    assert len(dashboard) == 3  # header + one diff section + reference card
+    assert isinstance(dashboard, pn.template.FastListTemplate)
+
+
+def test_curvilinear_land_is_not_filled_by_streaks():
+    """Regression: NaN-value land on a 2-D (curvilinear) grid must stay empty.
+
+    Blanking the *coordinates* of masked cells corrupts a structured QuadMesh — datashader
+    draws quads spanning the holes, streaking across the domain (seen on real NEMO grids).
+    Keeping coordinates intact leaves land as NaN pixels (rendered grey), so the centre of
+    an interior land block must aggregate to NaN, not spurious data.
+    """
+    import holoviews as hv
+
+    from xdiff.plotting.renderers.server import _datashaded, _field_element, _load_viz
+
+    _load_viz()
+    ny, nx = 60, 120
+    lon2d = np.tile(np.linspace(-18.0, 37.0, nx), (ny, 1))
+    lat2d = np.tile(np.linspace(30.0, 46.0, ny)[:, None], (1, nx))
+    difference = np.random.default_rng(0).normal(size=(ny, nx))
+    difference[20:45, 30:90] = np.nan  # interior "land" block
+    variable = _variable_plot(difference, lon=lon2d, lat=lat2d)
+
+    element = _field_element(hv, variable, variable.difference)
+    assert isinstance(element, hv.QuadMesh)
+    figure = hv.render(_datashaded(hv, element, method="smooth").opts(width=200, height=120))
+    images = [
+        r for r in figure.renderers if getattr(r, "glyph", None) is not None and r.glyph.__class__.__name__ == "Image"
+    ]
+    raster = np.asarray(images[0].data_source.data["image"][0])
+    centre = raster[raster.shape[0] // 2, raster.shape[1] // 2]
+    assert np.isnan(centre), "interior land aggregated to data — the streak corruption is back"
+
+
+def test_metadata_reports_min_and_max_of_difference():
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _metadata
+
+    variable = _variable_plot(np.array([[-2.0, 0.0], [1.0, 3.0]]), label="thetao", units="degC")
+    markdown = _metadata(pn, variable).object
+
+    assert "min" in markdown and "max" in markdown
+    assert "-2" in markdown and "3" in markdown
 
 
 def test_ensure_port_available_passes_for_free_port():
@@ -398,13 +447,17 @@ def test_serving_delivers_plot_glyphs_to_a_session():
     import panel as pn
     from bokeh.client import pull_session
     from bokeh.models import GlyphRenderer
+    from bokeh.models import Image as BkImage
 
     from xdiff.plotting.renderers.server import build_application
 
+    # Real lon/lat so the raster (datashade) path is exercised, not the coordinate-less fallback.
+    lon = np.linspace(0.0, 10.0, 6)
+    lat = np.linspace(0.0, 8.0, 5)
     spec = PlotSpec(
         Path("ref.nc"),
         Path("cmp.nc"),
-        [_variable_plot(np.ones((5, 6)), reference=np.arange(30.0).reshape(5, 6))],
+        [_variable_plot(np.ones((5, 6)), reference=np.arange(30.0).reshape(5, 6), lon=lon, lat=lat)],
         [],
     )
     port = _free_port()
@@ -425,9 +478,16 @@ def test_serving_delivers_plot_glyphs_to_a_session():
             except Exception:
                 time.sleep(0.5)
         assert session is not None, "server did not become ready"
-        glyphs = [model for model in session.document.select({}) if isinstance(model, GlyphRenderer)]
+        images = [
+            model
+            for model in session.document.select({})
+            if isinstance(model, GlyphRenderer) and isinstance(model.glyph, BkImage)
+        ]
+        finite = [int(np.isfinite(np.asarray(model.data_source.data["image"][0])).sum()) for model in images]
         session.close()
-        # difference (hero) + reference + comparison -> at least three glyph renderers.
-        assert len(glyphs) >= 3
+        # difference (hero) + reference + comparison -> at least three image glyphs...
+        assert len(images) >= 3
+        # ...and each carries real (non-blank) aggregated data, not an empty raster.
+        assert finite and all(count > 0 for count in finite)
     finally:
         server.stop()

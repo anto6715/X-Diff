@@ -331,22 +331,30 @@ def plot(
             from xdiff.plotting.renderers.matplotlib_renderer import validate_output_extension
 
             validate_output_extension(output)
+            # Static writes one image per requested variable, so keep the -v filter.
+            spec_variables = normalize_variables(variables or settings.DEFAULT_VARIABLES_TO_CHECK)
         else:
             from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available
 
             server_port = port if port is not None else DEFAULT_PORT
             # Fail fast on a busy port before doing any numeric work.
             ensure_port_available(address, server_port)
+            # The live server lets you browse every variable, so build them all; -v only
+            # picks which one is shown first (see _prioritize_variables below).
+            spec_variables = None
 
         spec = build_plot_spec(
             reference_path,
             comparison_path,
-            normalize_variables(variables or settings.DEFAULT_VARIABLES_TO_CHECK),
+            spec_variables,
             last_time_step=last_time_step,
             bbox=normalize_bbox(bbox),
         )
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+    if not static and variables:
+        spec = _prioritize_variables(spec, variables)
 
     for skipped in spec.skipped:
         click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
@@ -372,6 +380,27 @@ def plot(
     if no_open:
         click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
     serve(spec, port=server_port, open_browser=not no_open, address=address)
+
+
+def _prioritize_variables(spec, requested: tuple[str, ...]):
+    """Reorder ``spec.variables`` so the ``-v`` requested ones come first (the default shown).
+
+    All variables stay available in the live server's selector; this only sets which one is
+    shown first. Matches the base variable name, ignoring any ``[time=…]`` label suffix and
+    ``REF=CMP`` mapping.
+    """
+    from dataclasses import replace
+
+    wanted_names = {name.split("=")[0] for name in requested}
+
+    def base_name(label: str) -> str:
+        return label.split(" [")[0].split(" -> ")[0]
+
+    front = [variable for variable in spec.variables if base_name(variable.label) in wanted_names]
+    rest = [variable for variable in spec.variables if base_name(variable.label) not in wanted_names]
+    if not front:
+        return spec
+    return replace(spec, variables=front + rest)
 
 
 if __name__ == "__main__":
