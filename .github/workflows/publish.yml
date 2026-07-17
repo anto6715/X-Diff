@@ -12,7 +12,7 @@ name: Publish to PyPI
 #
 # Release flow: merge the release/X.Y.Z PR into master (the release-changelog
 # workflow bumps the version and builds CHANGES.md), then cut a GitHub Release
-# tagged vX.Y.Z. That triggers this workflow.
+# tagged X.Y.Z (a leading "v" is also accepted). That triggers this workflow.
 
 on:
   release:
@@ -43,8 +43,9 @@ jobs:
         run: |
           tag="${{ github.event.release.tag_name }}"
           version="$(uv version --short)"
-          if [[ "$tag" != "v$version" ]]; then
-            echo "Release tag '$tag' does not match package version 'v$version'."
+          # Accept the tag with or without a leading "v" (e.g. both "0.4.0" and "v0.4.0").
+          if [[ "$tag" != "$version" && "$tag" != "v$version" ]]; then
+            echo "Release tag '$tag' does not match package version '$version' (with or without a 'v' prefix)."
             exit 1
           fi
 
