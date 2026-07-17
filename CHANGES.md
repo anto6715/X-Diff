@@ -10,7 +10,7 @@ This repository uses `towncrier` to collect unreleased changes under `changes.d/
 
 ### 🚀 Features
 
-[#20](https://github.com/anto6715/X-Diff/pull/20) - Add support for Python 3.14 (now tested across the full 3.10–3.14 range in CI).
+[#20](https://github.com/anto6715/X-Diff/pull/20) - Add support for Python 3.14. (The supported range was later narrowed to 3.11–3.14 in this same release — see the Miscellaneous note for [#27].)
 
 [#23](https://github.com/anto6715/X-Diff/pull/23) - `-v/--variables` now accepts `REF=CMP` to compare differently-named variables (e.g. `-v thetao=votemper -v lon=longitude`), on both the `dirs` and `files` commands. Plain `-v NAME` still compares the same name on both sides. Mapped pairs are labelled `ref -> cmp` in the report.
 
