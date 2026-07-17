@@ -286,7 +286,22 @@ def compare_files(
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
     metavar="FILE",
-    help="Write a static image; the extension picks the format (.png/.pdf/.svg).",
+    help="Write a static image; the extension picks the format (.png/.pdf/.svg). Omit for the live server.",
+)
+@click.option(
+    "--port",
+    type=click.IntRange(min=1, max=65535),
+    default=None,
+    metavar="N",
+    # Keep the quoted default in sync with server.DEFAULT_PORT (not imported here to keep
+    # CLI startup free of the plotting stack).
+    help="Port for the live interactive server (default: 5006). Ignored with -o.",
+)
+@click.option(
+    "--no-open",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the browser; just print the URL (server mode, e.g. for headless/SSH).",
 )
 def plot(
     reference_path: Path,
@@ -295,21 +310,70 @@ def plot(
     last_time_step: bool,
     bbox: tuple[float, float, float, float] | None,
     output: Path | None,
+    port: int | None,
+    no_open: bool,
 ) -> None:
-    """Plot where two netCDF files differ, as reference | comparison | difference."""
-    # The interactive server (default, no -o) arrives in a later iteration.
-    if output is None:
-        raise click.ClickException(
-            "interactive server not available yet; pass -o FILE.png (.png/.pdf/.svg) for a static image"
-        )
+    """Plot where two netCDF files differ, focusing on the difference field.
 
-    # Lazy imports keep CLI startup fast: matplotlib/xarray load only for `plot`.
+    With -o, render the difference (one full-size image per variable) and exit. Without
+    -o, start a live interactive server on localhost — each difference shown large with a
+    colour-limit slider, reference/comparison behind a collapsed card — and block until
+    Ctrl-C.
+    """
+    # Lazy imports keep CLI startup fast: the plotting stack loads only for `plot`.
+    from xdiff.core.main import normalize_bbox
+
+    static = output is not None
+    address = "localhost"
+
+    if static:
+        _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox)
+        return
+
+    from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available, serve
+    from xdiff.plotting.spec import open_plot_source
+
+    server_port = port if port is not None else DEFAULT_PORT
+    try:
+        # Fail fast on a busy port before opening any datasets.
+        ensure_port_available(address, server_port)
+        # The live server lets you browse every variable, so open them all; -v only picks
+        # which one is shown first (see _default_variable_index).
+        source = open_plot_source(
+            reference_path,
+            comparison_path,
+            None,
+            last_time_step=last_time_step,
+            bbox=normalize_bbox(bbox),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    try:
+        for skipped in source.skipped:
+            click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
+        if not source.variables:
+            raise click.ClickException("no plottable variables found")
+
+        default_index = _default_variable_index(source, variables)
+        url = f"http://{address}:{server_port}"
+        click.echo(f"Serving xdiff plot at {url} (Ctrl-C to stop)")
+        if no_open:
+            click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
+        serve(source, port=server_port, open_browser=not no_open, address=address, default_index=default_index)
+    finally:
+        source.close()
+
+
+def _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox) -> None:
+    """Render the difference to a static image (one per requested variable) and exit."""
     from xdiff.core.main import normalize_bbox, normalize_variables
     from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
     from xdiff.plotting.spec import build_plot_spec
 
     try:
         validate_output_extension(output)
+        # Static writes one image per requested variable, so keep the -v filter.
         spec = build_plot_spec(
             reference_path,
             comparison_path,
@@ -317,14 +381,28 @@ def plot(
             last_time_step=last_time_step,
             bbox=normalize_bbox(bbox),
         )
+        for skipped in spec.skipped:
+            click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
         written = render_to_files(spec, output)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
-
-    for skipped in spec.skipped:
-        click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
     for path in written:
         click.echo(f"wrote {path}")
+
+
+def _default_variable_index(source, requested: tuple[str, ...]) -> int:
+    """Index of the first ``-v`` requested variable in ``source`` (the default shown), else 0.
+
+    All variables stay available in the live server's selector; this only sets which one is
+    shown first. Matches the base variable name, ignoring any ``REF=CMP`` mapping.
+    """
+    if not requested:
+        return 0
+    wanted_names = {name.split("=")[0] for name in requested}
+    for index, handle in enumerate(source.variables):
+        if handle.label.split(" -> ")[0] in wanted_names:
+            return index
+    return 0
 
 
 if __name__ == "__main__":

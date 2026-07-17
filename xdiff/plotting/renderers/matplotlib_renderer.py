@@ -1,8 +1,10 @@
-"""Static image renderer: one triptych (reference | comparison | difference) per variable.
+"""Static image renderer: one full-size difference map (or line) per variable.
 
 Headless by construction — the matplotlib ``Agg`` backend is selected before ``pyplot``
 is imported, so PNG/PDF/SVG rendering needs no display (CI, remote login nodes). The
 heavy import is lazy and raises a clear install hint when the ``plot`` extra is missing.
+There is no map projection or coastline layer (no cartopy): the data's own NaN mask draws
+the land, and the axes use a latitude-corrected aspect so the domain is not distorted.
 """
 
 from __future__ import annotations
@@ -18,8 +20,10 @@ if TYPE_CHECKING:
 
 SUPPORTED_EXTENSIONS = (".png", ".pdf", ".svg")
 
-_REFERENCE_CMAP = "viridis"
 _DIFF_CMAP = "RdBu_r"
+# NaN cells (land / masked) are painted this neutral grey. On the diverging colormap white
+# already means "no difference", so leaving NaN white would be ambiguous. Matches the server.
+_LAND_COLOR = "#b0b0b0"
 
 
 def validate_output_extension(output: Path) -> None:
@@ -78,32 +82,30 @@ def _load_pyplot():
 
 
 def _render_variable(plt, variable: VariablePlot):
-    """Dispatch on dimensionality: triptych of maps for 2-D, of lines for 1-D."""
+    """Render only the difference — a full-size map (2-D) or line (1-D).
+
+    Static output (``-o``) is for reports: the difference is the point, so we give it the
+    whole figure rather than cramming it into one third of a reference|comparison triptych.
+    """
     if len(variable.dims) == 2:
-        figure = _render_2d(plt, variable)
-    else:
-        figure = _render_1d(plt, variable)
-    figure.suptitle(variable.label)
-    return figure
+        return _render_diff_map(plt, variable)
+    return _render_diff_line(plt, variable)
 
 
-def _render_2d(plt, variable: VariablePlot):
-    figure, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-    label = _value_label(variable)
+def _render_diff_map(plt, variable: VariablePlot):
+    """A full-size difference map: smooth (gouraud) pcolormesh, cropped to the data domain.
 
-    shared_min, shared_max = _shared_limits(variable.reference, variable.comparison)
-    for axis, values, title in (
-        (axes[0], variable.reference, "reference"),
-        (axes[1], variable.comparison, "comparison"),
-    ):
-        mappable = _pcolor(
-            axis, values, variable.lon, variable.lat, cmap=_REFERENCE_CMAP, vmin=shared_min, vmax=shared_max
-        )
-        axis.set_title(title)
-        figure.colorbar(mappable, ax=axis, label=label)
+    Plain lon/lat axes (no projection). The figure is sized to the domain's latitude-corrected
+    aspect and the axes use that aspect, so a wide-short basin (e.g. the Mediterranean) is drawn
+    in proportion instead of stretched into a square. ``bbox_inches='tight'`` on save trims the
+    surrounding whitespace.
+    """
+    from xdiff.plotting.spec import valid_extent
 
-    diff_mappable = _pcolor(
-        axes[2],
+    extent = valid_extent(variable)
+    figure, axis = plt.subplots(figsize=_figure_size(extent))
+    mappable = _pcolor(
+        axis,
         variable.difference,
         variable.lon,
         variable.lat,
@@ -111,51 +113,78 @@ def _render_2d(plt, variable: VariablePlot):
         vmin=-variable.diff_limit,
         vmax=variable.diff_limit,
     )
-    axes[2].set_title(f"difference\nclipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}")
-    figure.colorbar(diff_mappable, ax=axes[2], label=label)
+    if extent is not None:
+        axis.set_xlim(extent[0], extent[1])
+        axis.set_ylim(extent[2], extent[3])
+        axis.set_aspect(_latitude_aspect((extent[2] + extent[3]) / 2.0))
+        axis.set_xlabel("lon")
+        axis.set_ylabel("lat")
+    axis.set_title(
+        f"{variable.label} — difference\nclipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}"
+    )
+    figure.colorbar(mappable, ax=axis, label=_value_label(variable), extend="both", fraction=0.046, pad=0.02)
+    figure.text(0.5, 0.01, _minmax_caption(variable), ha="center", fontsize=9)
     figure.tight_layout()
     return figure
 
 
-def _render_1d(plt, variable: VariablePlot):
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    label = _value_label(variable)
-    x_values = _axis_1d(variable)
+def _latitude_aspect(mean_lat: float) -> float:
+    """Axes y/x aspect so 1° lon and 1° lat are drawn to physical scale (equirectangular)."""
+    return 1.0 / max(np.cos(np.deg2rad(mean_lat)), 0.1)
 
-    axes[0].plot(x_values, variable.reference, label="reference")
-    axes[0].plot(x_values, variable.comparison, label="comparison", linestyle="--")
-    axes[0].set_title("reference vs comparison")
-    axes[0].set_ylabel(label)
-    axes[0].legend()
 
-    axes[1].axhline(0.0, color="0.7", linewidth=0.8)
-    axes[1].plot(x_values, variable.difference, color="tab:red")
-    axes[1].set_title(f"difference (true ±{variable.diff_extreme:.3g})")
-    axes[1].set_ylabel(label)
+def _figure_size(extent) -> tuple[float, float]:
+    """Figure size matching the domain's latitude-corrected aspect (extra height for labels)."""
+    if extent is None:
+        return (9.0, 6.0)
+    lon_min, lon_max, lat_min, lat_max = extent
+    span_x = max(lon_max - lon_min, 1e-6) * np.cos(np.deg2rad((lat_min + lat_max) / 2.0))
+    span_y = max(lat_max - lat_min, 1e-6)
+    width = 9.0
+    height = min(max(width * span_y / span_x + 1.6, 3.5), 11.0)  # +room for title/colorbar/caption
+    return (width, height)
+
+
+def _minmax_caption(variable: VariablePlot) -> str:
+    difference = np.asarray(variable.difference, dtype=float)
+    return f"min: {np.nanmin(difference):.2e}   max: {np.nanmax(difference):.2e}"
+
+
+def _render_diff_line(plt, variable: VariablePlot):
+    figure, axis = plt.subplots(figsize=(9, 5))
+    axis.axhline(0.0, color="0.7", linewidth=0.8)
+    axis.plot(_axis_1d(variable), variable.difference, color="tab:red")
+    axis.set_title(f"{variable.label} — difference (true ±{variable.diff_extreme:.3g})")
+    axis.set_ylabel(_value_label(variable))
     figure.tight_layout()
     return figure
 
 
 def _pcolor(axis, values, lon, lat, **kwargs):
-    """Draw a 2-D field, using lon/lat for axes when their shapes line up.
+    """Draw a 2-D field smoothly, using lon/lat for axes when their shapes line up.
 
-    Falls back to an index-axis image when coordinates are absent or their shapes do
-    not match the field (so an orientation quirk never aborts the render). NaNs render
-    blank in both paths.
+    ``shading='gouraud'`` interpolates between cell centres (the smooth look, matching the
+    server's linear-interpolated maps). Falls back to a bilinear index-axis image when
+    coordinates are absent or their shapes do not match the field (so an orientation quirk
+    never aborts the render). NaN cells (land / masked) render as neutral grey in both paths.
     """
     values = np.asarray(values, dtype=float)
+    if isinstance(kwargs.get("cmap"), str):
+        import matplotlib
+
+        kwargs["cmap"] = matplotlib.colormaps[kwargs["cmap"]].with_extremes(bad=_LAND_COLOR)
     if lon is not None and lat is not None:
         try:
             if lon.ndim == 1 and lat.ndim == 1:
                 if values.shape == (lat.size, lon.size):
-                    return axis.pcolormesh(lon, lat, values, **kwargs)
+                    return axis.pcolormesh(lon, lat, values, shading="gouraud", **kwargs)
                 if values.shape == (lon.size, lat.size):
-                    return axis.pcolormesh(lon, lat, values.T, **kwargs)
+                    return axis.pcolormesh(lon, lat, values.T, shading="gouraud", **kwargs)
             elif lon.shape == values.shape and lat.shape == values.shape:
-                return axis.pcolormesh(lon, lat, values, **kwargs)
+                return axis.pcolormesh(lon, lat, values, shading="gouraud", **kwargs)
         except Exception:  # noqa: BLE001 - fall back to a plain image on any plotting quirk
             pass
-    return axis.imshow(values, origin="lower", aspect="auto", **kwargs)
+    return axis.imshow(values, origin="lower", aspect="auto", interpolation="bilinear", **kwargs)
 
 
 def _axis_1d(variable: VariablePlot) -> np.ndarray:
@@ -164,13 +193,6 @@ def _axis_1d(variable: VariablePlot) -> np.ndarray:
         if coordinate is not None and coordinate.ndim == 1 and coordinate.size == length:
             return coordinate
     return np.arange(length)
-
-
-def _shared_limits(reference: np.ndarray, comparison: np.ndarray) -> tuple[float | None, float | None]:
-    stacked = np.concatenate([np.asarray(reference, dtype=float).ravel(), np.asarray(comparison, dtype=float).ravel()])
-    if not np.any(np.isfinite(stacked)):
-        return None, None
-    return float(np.nanmin(stacked)), float(np.nanmax(stacked))
 
 
 def _value_label(variable: VariablePlot) -> str:

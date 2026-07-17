@@ -6,10 +6,10 @@ authors = [
     {name = "Antonio Mariani", email = "antonio.mariani@cmcc.it"}
 ]
 readme = "README.md"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 dependencies = [
-    "xarray>=2024.6.0,<2025.0.0",
-    "pandas>=2.2.2,<3.0.0",
+    "xarray>=2024.6.0,<2027.0.0",
+    "pandas>=2.2.2,<4.0.0",
     "netcdf4>=1.7.1,<2.0.0",
     "rich>=13.7.1,<14.0.0",
     "click>=8.3.1,<9.0.0",
@@ -19,15 +19,22 @@ dependencies = [
 # Parallel execution backend. Only required for `-w/--dask-workers` and the
 # external-scheduler options; the default serial path never imports these.
 dask = [
-    "dask>=2024.6.0,<2025.0.0",
-    "distributed>=2024.6.0,<2025.0.0",
+    "dask>=2024.6.0,<2027.0.0",
+    "distributed>=2024.6.0,<2027.0.0",
     "bokeh>=3.1.0,<4.0.0",
 ]
 # Plotting backends. Only required for the `plot` subcommand; imported lazily.
-# The interactive Panel/Bokeh server (a later iteration) extends this with
-# hvplot/holoviews/panel; static rendering needs only matplotlib.
+# Static rendering (`-o`) uses matplotlib; the live interactive server (no `-o`) uses
+# holoviews/panel over Bokeh with datashader. No cartopy/geoviews: maps are plain lon/lat
+# (land is the data's own NaN mask). The live server can optionally overlay web-map tiles
+# (holoviews' built-in tile sources) when online — no extra dependency.
 plot = [
     "matplotlib>=3.8.0,<4.0.0",
+    "holoviews>=1.18.0,<2.0.0",
+    "panel>=1.4.0,<2.0.0",
+    "bokeh>=3.1.0,<4.0.0",
+    "datashader>=0.16.0,<0.19.0",
+    "numba>=0.60.0,<1.0.0",
 ]
 
 [project.urls]
@@ -61,7 +68,7 @@ module-root = ""
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear.
@@ -70,6 +77,13 @@ select = ["E", "W", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:numpy.ndarray size changed, may indicate binary incompatibility.*:RuntimeWarning",
+    # Panel <2.0 still accepts `name=` on widgets; keep it for compatibility across the
+    # pinned range and quiet the pending-deprecation notice the plotting tests surface.
+    "ignore:Widget.name is deprecated.*:PendingDeprecationWarning",
+    # Emitted by tornado/bokeh server internals during the served-dashboard test.
+    "ignore:There is no current event loop.*:DeprecationWarning",
+    # datashader imports dask.dataframe, which warns about query planning; irrelevant here.
+    "ignore::FutureWarning:dask.dataframe",
 ]
 
 [tool.coverage.run]
