@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Overview
-`xdiff` is a general-purpose tool for exploring differences between datasets (PyPI distribution `xdiffly`, CLI command and import package `xdiff`). netCDF is the only comparator today; the architecture is format-agnostic (see "adding a new artifact type"). It discovers artifacts in two directory trees, matches them by filename or a common regex pattern, and produces a rich terminal report with per-variable numeric metrics. Python 3.10–3.14 is supported; the local environment uses 3.13 (see `.python-version`).
+`xdiff` is a general-purpose tool for exploring differences between datasets (PyPI distribution `xdiffly`, CLI command and import package `xdiff`). netCDF is the only comparator today; the architecture is format-agnostic (see "adding a new artifact type"). It discovers artifacts in two directory trees, matches them by filename or a common regex pattern, and produces a rich terminal report with per-variable numeric metrics. Python 3.10–3.14 is supported; the local environment uses 3.14 (see `.python-version`).
 
 ## Project Structure & Module Organization
 

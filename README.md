@@ -4,7 +4,7 @@
 Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
 in netCDF format.
 
-![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10--3.14-blue.svg)
 [![Tests](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/X-Diff/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/X-Diff)
 
@@ -25,7 +25,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 `xdiff` currently supports Python 3.10 through 3.14. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
-uv sync --python 3.13
+uv sync --python 3.14
 ```
 
 Run the CLI through uv:
@@ -39,7 +39,7 @@ uv run xdiff --help
 The package is published on PyPI as `xdiffly`; it installs the `xdiff` command.
 
 ```shell
-uv tool install --python 3.13 xdiffly
+uv tool install --python 3.14 xdiffly
 ```
 
 `uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
@@ -47,13 +47,13 @@ uv tool install --python 3.13 xdiffly
 The base install runs serially and is intentionally lightweight. To enable Dask-backed parallel execution, install the optional `dask` extra:
 
 ```shell
-uv tool install --python 3.13 "xdiffly[dask]"
+uv tool install --python 3.14 "xdiffly[dask]"
 ```
 
 The `plot` subcommand needs the optional `plot` extra (matplotlib for static images; holoviews/panel/bokeh/datashader for the live server):
 
 ```shell
-uv tool install --python 3.13 "xdiffly[plot]"
+uv tool install --python 3.14 "xdiffly[plot]"
 ```
 
 ## Usage

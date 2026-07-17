@@ -3,7 +3,7 @@
 All the *logic* of the plot feature lives here — reduction to a plottable slice,
 integer-safe differencing, axis pickup, colour limits, and the skip policy. Both
 renderers (static matplotlib, interactive server) consume the resulting
-:class:`PlotSpec` and stay dumb. See ``docs/plot-diff-plan.md`` §2.
+:class:`PlotSpec` / :class:`PlotSource` and stay dumb.
 """
 
 from __future__ import annotations
