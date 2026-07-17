@@ -50,7 +50,7 @@ The base install runs serially and is intentionally lightweight. To enable Dask-
 uv tool install --python 3.13 "xdiffly[dask]"
 ```
 
-The `plot` subcommand needs the optional `plot` extra (matplotlib + cartopy for static images; holoviews/geoviews/panel/bokeh/datashader for the live server):
+The `plot` subcommand needs the optional `plot` extra (matplotlib for static images; holoviews/panel/bokeh/datashader for the live server):
 
 ```shell
 uv tool install --python 3.13 "xdiffly[plot]"
@@ -106,17 +106,15 @@ Inputs on *different* grids or resolutions need regridding first — that is out
 
 `xdiff plot` turns the comparison from *numbers* into a *picture* of **where** two files differ. The difference is the focus — drawn on a diverging colormap centered at 0, so red/blue shows the sign of the disagreement. It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
 
-There are two modes, selected by the presence of `-o`:
+Both modes draw a plain lon/lat map (no projection or coastlines): land is the data's own NaN mask, painted grey. There are two modes, selected by the presence of `-o`:
 
-Both modes draw the field on a cartopy/geoviews map — coastlines, filled land, lon/lat gridlines — cropped to the data domain. When the coastline dataset can't be reached (a fully offline node), they fall back to a plain lon/lat map with grey land.
-
-**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
+**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The map is smoothly shaded and drawn with a latitude-corrected aspect so the domain is not distorted. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
 ```
 
-**Live interactive server** — omit `-o` to build the plots, start a local server, open the browser, and block until Ctrl-C. Each variable's **difference** is shown large; the maps are datashaded, so they **re-aggregate server-side as you zoom** (scroll to zoom) and scale to large grids. A slider adjusts the colour limit live (zoom preserved), land/masked cells show grey, and hovering reads off the value. The reference and comparison maps sit in a collapsed *"Reference & comparison maps"* card at the bottom, expanded on demand. Nothing is written to disk; when `xdiff` exits, the server stops.
+**Live interactive server** — omit `-o` to start a local server, open the browser, and block until Ctrl-C. A sidebar drives everything: pick any **variable** in the file, step through **time/depth** levels, adjust the **colour limit** and **colormap** live (zoom preserved), toggle **smooth ↔ blocks** rendering, and optionally overlay a web-map **basemap** (Carto, OSM, Esri, …; needs internet). The difference is shown large and **datashaded**, so it **re-aggregates server-side as you zoom** (scroll to zoom) and scales to large grids; the min/max readout shows the true magnitude and hovering reads off values. The reference and comparison maps sit in a collapsed card at the bottom. Nothing is written to disk; when `xdiff` exits, the server stops.
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao

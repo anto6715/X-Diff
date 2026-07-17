@@ -501,6 +501,35 @@ def _configure_bokeh_backend(holoviews, panel) -> None:
     # re-aggregation (i.e. every zoom). Those cells still render correctly; silence the noise.
     warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"datashader\.glyphs\.quadmesh")
 
+    _quiet_disconnect_noise()
+
+
+class _DisconnectNoiseFilter:
+    """Drops the closed-connection tracebacks bokeh/tornado log when a browser tab is closed."""
+
+    _NOISE = ("WebSocketClosedError", "StreamClosedError", "Stream is closed", "WebSocket connection closed")
+
+    def filter(self, record) -> bool:
+        text = record.getMessage()
+        if record.exc_info and record.exc_info[1] is not None:
+            text += repr(record.exc_info[1])
+        return not any(marker in text for marker in self._NOISE)
+
+
+def _quiet_disconnect_noise() -> None:
+    """Silence the scary-looking (but harmless) traceback logged when a browser tab closes.
+
+    Closing a tab while the server keeps running drops the websocket mid-write; bokeh/tornado
+    log a ``WebSocketClosedError``/``StreamClosedError`` traceback that alarms without meaning
+    anything. Filter only those records — unrelated errors on these loggers still surface.
+    """
+    import logging
+
+    for name in ("tornado.application", "tornado.general", "bokeh.server.views.ws"):
+        logger = logging.getLogger(name)
+        if not any(isinstance(existing, _DisconnectNoiseFilter) for existing in logger.filters):
+            logger.addFilter(_DisconnectNoiseFilter())
+
 
 def _axis_1d(variable: VariablePlot) -> np.ndarray:
     length = variable.reference.shape[0]

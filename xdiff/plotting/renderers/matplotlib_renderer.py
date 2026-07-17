@@ -1,13 +1,14 @@
-"""Static image renderer: one triptych (reference | comparison | difference) per variable.
+"""Static image renderer: one full-size difference map (or line) per variable.
 
 Headless by construction — the matplotlib ``Agg`` backend is selected before ``pyplot``
 is imported, so PNG/PDF/SVG rendering needs no display (CI, remote login nodes). The
 heavy import is lazy and raises a clear install hint when the ``plot`` extra is missing.
+There is no map projection or coastline layer (no cartopy): the data's own NaN mask draws
+the land, and the axes use a latitude-corrected aspect so the domain is not distorted.
 """
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,19 +18,12 @@ import numpy as np
 if TYPE_CHECKING:
     from xdiff.plotting.spec import PlotSpec, VariablePlot
 
-logger = logging.getLogger("xdiff")
-
 SUPPORTED_EXTENSIONS = (".png", ".pdf", ".svg")
 
 _DIFF_CMAP = "RdBu_r"
-# NaN cells (land / masked) are painted this neutral grey when there is no coastline map.
-# On the diverging colormap white already means "no difference", so leaving NaN white would
-# be ambiguous. Matches the interactive server's land colour.
+# NaN cells (land / masked) are painted this neutral grey. On the diverging colormap white
+# already means "no difference", so leaving NaN white would be ambiguous. Matches the server.
 _LAND_COLOR = "#b0b0b0"
-# When cartopy is available we instead draw a filled land feature in this colour (matching
-# the mtplot look) and let the data NaNs fall through transparently.
-_LAND_FILL = "#e8e6d8"
-_COASTLINE_RESOLUTION = "10m"
 
 
 def validate_output_extension(output: Path) -> None:
@@ -99,56 +93,17 @@ def _render_variable(plt, variable: VariablePlot):
 
 
 def _render_diff_map(plt, variable: VariablePlot):
-    """Difference map: a cartopy map (coastlines + filled land) when available, else plain.
+    """A full-size difference map: smooth (gouraud) pcolormesh, cropped to the data domain.
 
-    The cartopy path is wrapped in a fallback so a missing coastline dataset (e.g. an
-    offline login node that never downloaded Natural Earth) degrades to the plain
-    lon/lat pcolormesh instead of failing the whole plot.
+    Plain lon/lat axes (no projection). The figure is sized to the domain's latitude-corrected
+    aspect and the axes use that aspect, so a wide-short basin (e.g. the Mediterranean) is drawn
+    in proportion instead of stretched into a square. ``bbox_inches='tight'`` on save trims the
+    surrounding whitespace.
     """
     from xdiff.plotting.spec import valid_extent
 
-    geo = _try_cartopy()
-    if geo is not None and variable.lon is not None and variable.lat is not None:
-        try:
-            return _render_diff_map_geo(plt, variable, *geo, extent=valid_extent(variable))
-        except Exception as exc:  # noqa: BLE001 - coastline data missing, etc.
-            logger.warning("Falling back to a plain map (cartopy rendering failed): %s", exc)
-    return _render_diff_map_plain(plt, variable)
-
-
-def _render_diff_map_geo(plt, variable: VariablePlot, ccrs, cfeature, *, extent):
-    figure = plt.figure(figsize=(11, 6))
-    axis = figure.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-    if extent is not None:
-        axis.set_extent(list(extent), crs=ccrs.PlateCarree())
-
-    mappable = _pcolor(
-        axis,
-        variable.difference,
-        variable.lon,
-        variable.lat,
-        cmap=_diverging_cmap_transparent(),
-        vmin=-variable.diff_limit,
-        vmax=variable.diff_limit,
-        transform=ccrs.PlateCarree(),
-        zorder=1,
-    )
-    axis.add_feature(cfeature.LAND, facecolor=_LAND_FILL, zorder=2)
-    axis.coastlines(resolution=_COASTLINE_RESOLUTION, color="black", linewidth=0.6, zorder=3)
-    gridlines = axis.gridlines(draw_labels=True, linewidth=1, color="grey", alpha=0.5, linestyle="--")
-    gridlines.top_labels = False
-    gridlines.right_labels = False
-
-    colorbar = figure.colorbar(mappable, ax=axis, orientation="vertical", aspect=30, fraction=0.046, extend="both")
-    colorbar.ax.set_title(_value_label(variable), fontsize=10)
-    figure.suptitle(f"{variable.label} — difference", fontsize=15, y=0.98)
-    axis.set_title(f"clipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}", fontsize=10)
-    figure.text(0.5, 0.02, _minmax_caption(variable), ha="center", fontsize=9)
-    return figure
-
-
-def _render_diff_map_plain(plt, variable: VariablePlot):
-    figure, axis = plt.subplots(figsize=(8, 6.5))
+    extent = valid_extent(variable)
+    figure, axis = plt.subplots(figsize=_figure_size(extent))
     mappable = _pcolor(
         axis,
         variable.difference,
@@ -158,30 +113,36 @@ def _render_diff_map_plain(plt, variable: VariablePlot):
         vmin=-variable.diff_limit,
         vmax=variable.diff_limit,
     )
+    if extent is not None:
+        axis.set_xlim(extent[0], extent[1])
+        axis.set_ylim(extent[2], extent[3])
+        axis.set_aspect(_latitude_aspect((extent[2] + extent[3]) / 2.0))
+        axis.set_xlabel("lon")
+        axis.set_ylabel("lat")
     axis.set_title(
         f"{variable.label} — difference\nclipped ±{variable.diff_limit:.3g}; true ±{variable.diff_extreme:.3g}"
     )
-    figure.colorbar(mappable, ax=axis, label=_value_label(variable))
+    figure.colorbar(mappable, ax=axis, label=_value_label(variable), extend="both", fraction=0.046, pad=0.02)
+    figure.text(0.5, 0.01, _minmax_caption(variable), ha="center", fontsize=9)
     figure.tight_layout()
     return figure
 
 
-def _try_cartopy():
-    """Return (cartopy.crs, cartopy.feature) if importable, else None."""
-    try:
-        import cartopy.crs as ccrs
-        import cartopy.feature as cfeature
-
-        return ccrs, cfeature
-    except Exception:  # noqa: BLE001 - cartopy absent or broken -> plain map
-        return None
+def _latitude_aspect(mean_lat: float) -> float:
+    """Axes y/x aspect so 1° lon and 1° lat are drawn to physical scale (equirectangular)."""
+    return 1.0 / max(np.cos(np.deg2rad(mean_lat)), 0.1)
 
 
-def _diverging_cmap_transparent():
-    """The diff colormap with NaN rendered transparent (so the land feature shows through)."""
-    import matplotlib
-
-    return matplotlib.colormaps[_DIFF_CMAP].with_extremes(bad=(0.0, 0.0, 0.0, 0.0))
+def _figure_size(extent) -> tuple[float, float]:
+    """Figure size matching the domain's latitude-corrected aspect (extra height for labels)."""
+    if extent is None:
+        return (9.0, 6.0)
+    lon_min, lon_max, lat_min, lat_max = extent
+    span_x = max(lon_max - lon_min, 1e-6) * np.cos(np.deg2rad((lat_min + lat_max) / 2.0))
+    span_y = max(lat_max - lat_min, 1e-6)
+    width = 9.0
+    height = min(max(width * span_y / span_x + 1.6, 3.5), 11.0)  # +room for title/colorbar/caption
+    return (width, height)
 
 
 def _minmax_caption(variable: VariablePlot) -> str:
@@ -200,11 +161,12 @@ def _render_diff_line(plt, variable: VariablePlot):
 
 
 def _pcolor(axis, values, lon, lat, **kwargs):
-    """Draw a 2-D field, using lon/lat for axes when their shapes line up.
+    """Draw a 2-D field smoothly, using lon/lat for axes when their shapes line up.
 
-    Falls back to an index-axis image when coordinates are absent or their shapes do
-    not match the field (so an orientation quirk never aborts the render). NaN cells
-    (land / masked) render as neutral grey in both paths.
+    ``shading='gouraud'`` interpolates between cell centres (the smooth look, matching the
+    server's linear-interpolated maps). Falls back to a bilinear index-axis image when
+    coordinates are absent or their shapes do not match the field (so an orientation quirk
+    never aborts the render). NaN cells (land / masked) render as neutral grey in both paths.
     """
     values = np.asarray(values, dtype=float)
     if isinstance(kwargs.get("cmap"), str):
@@ -215,14 +177,14 @@ def _pcolor(axis, values, lon, lat, **kwargs):
         try:
             if lon.ndim == 1 and lat.ndim == 1:
                 if values.shape == (lat.size, lon.size):
-                    return axis.pcolormesh(lon, lat, values, **kwargs)
+                    return axis.pcolormesh(lon, lat, values, shading="gouraud", **kwargs)
                 if values.shape == (lon.size, lat.size):
-                    return axis.pcolormesh(lon, lat, values.T, **kwargs)
+                    return axis.pcolormesh(lon, lat, values.T, shading="gouraud", **kwargs)
             elif lon.shape == values.shape and lat.shape == values.shape:
-                return axis.pcolormesh(lon, lat, values, **kwargs)
+                return axis.pcolormesh(lon, lat, values, shading="gouraud", **kwargs)
         except Exception:  # noqa: BLE001 - fall back to a plain image on any plotting quirk
             pass
-    return axis.imshow(values, origin="lower", aspect="auto", **kwargs)
+    return axis.imshow(values, origin="lower", aspect="auto", interpolation="bilinear", **kwargs)
 
 
 def _axis_1d(variable: VariablePlot) -> np.ndarray:

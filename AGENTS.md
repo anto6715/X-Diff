@@ -73,7 +73,7 @@ Exit code 0 = all comparisons passed; exit code 1 = one or more failures.
 | `--port N` | Port for the live server (default `5006`; fails fast if busy, never auto-incremented). Ignored with `-o`. |
 | `--no-open` | Do not auto-open a browser; print the URL (for headless / `ssh -L` sessions). |
 
-Without `-o`, `plot` starts a Panel/Bokeh server bound to `localhost` and blocks until Ctrl-C (exit 0); with `-o` it renders one triptych per variable and exits.
+Without `-o`, `plot` starts a Panel/Bokeh server bound to `localhost` and blocks until Ctrl-C (exit 0) — a sidebar-driven app to browse every variable, step through time/depth, adjust colour limit/colormap/smooth-blocks live, and optionally overlay a web-map basemap. With `-o` it renders one full-size difference image per variable and exits.
 
 ## Build, Test, and Development Commands
 
@@ -82,7 +82,7 @@ Use `uv` for all local setup and execution:
 - `uv sync`: create the virtual environment and install runtime + dev dependencies (the default `dev` group pulls in the `dask` extra, so the full toolchain is present).
 - `uv sync --no-default-groups`: install only the base runtime — serial execution, no Dask. This mirrors what PyPI users get from `pip install xdiffly`.
 - `uv sync --extra dask`: base runtime plus the optional Dask backend (`dask`, `distributed`, `bokeh`); this is what `pip install "xdiffly[dask]"` provides.
-- `uv sync --extra plot`: base runtime plus the optional plotting backend (`matplotlib` + `cartopy` for static images; `holoviews`, `geoviews`, `panel`, `bokeh`, `datashader` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand. cartopy/geoviews draw coastlines + filled land and fetch Natural Earth data on first use; both renderers fall back to a plain lon/lat map when that data is unavailable.
+- `uv sync --extra plot`: base runtime plus the optional plotting backend (`matplotlib` for static images; `holoviews`, `panel`, `bokeh`, `datashader` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand. No cartopy/geoviews — maps are plain lon/lat with the data's NaN mask as land; the live server can optionally overlay holoviews' built-in web-map tiles (Carto/OSM/Esri) when online.
 - `uv run xdiff dirs a b`: run the CLI against the bundled sample folders.
 - `uv run xdiff --help`: verify argument parsing and exposed options.
 - `uv build`: create wheel and sdist artifacts in `dist/`.

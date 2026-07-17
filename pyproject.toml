@@ -24,18 +24,16 @@ dask = [
     "bokeh>=3.1.0,<4.0.0",
 ]
 # Plotting backends. Only required for the `plot` subcommand; imported lazily.
-# Static rendering (`-o`) uses matplotlib + cartopy; the live interactive server (no `-o`)
-# uses holoviews/geoviews/panel over Bokeh with datashader. cartopy/geoviews add
-# coastlines and filled land; they fetch Natural Earth data on first use, so a fully
-# offline node degrades to a plain lon/lat map (see the renderers' fallbacks).
+# Static rendering (`-o`) uses matplotlib; the live interactive server (no `-o`) uses
+# holoviews/panel over Bokeh with datashader. No cartopy/geoviews: maps are plain lon/lat
+# (land is the data's own NaN mask). The live server can optionally overlay web-map tiles
+# (holoviews' built-in tile sources) when online — no extra dependency.
 plot = [
     "matplotlib>=3.8.0,<4.0.0",
     "holoviews>=1.18.0,<2.0.0",
     "panel>=1.4.0,<2.0.0",
     "bokeh>=3.1.0,<4.0.0",
     "datashader>=0.16.0,<0.19.0",
-    "cartopy>=0.22.0,<0.26.0",
-    "geoviews>=1.11.0,<1.15.0",
 ]
 
 [project.urls]
