@@ -1,13 +1,12 @@
 import importlib
-
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from xdiff.conf import settings
 from xdiff.management.cli import cli
-from xdiff.model.report import ComparisonReport
 from xdiff.model import CompareMode
+from xdiff.model.report import ComparisonReport
 
 cli_module = importlib.import_module("xdiff.management.cli")
 
@@ -199,7 +198,6 @@ def test_dirs_command_rejects_scheduler_with_local_workers():
 
     assert result.exit_code != 0
     assert "external Dask scheduler" in result.output
-
 
 
 def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):

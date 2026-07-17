@@ -4,7 +4,7 @@
 Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
 in netCDF format.
 
-![Python](https://img.shields.io/badge/Python-3.10--3.13-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.11--3.14-blue.svg)
 [![Tests](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/X-Diff/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/X-Diff)
 
@@ -22,10 +22,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-`xdiff` currently supports Python 3.10 through 3.13. Create the project-local environment and install dependencies from `uv.lock` with:
+`xdiff` currently supports Python 3.11 through 3.14. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
-uv sync --python 3.13
+uv sync --python 3.14
 ```
 
 Run the CLI through uv:
@@ -39,10 +39,22 @@ uv run xdiff --help
 The package is published on PyPI as `xdiffly`; it installs the `xdiff` command.
 
 ```shell
-uv tool install --python 3.13 xdiffly
+uv tool install --python 3.14 xdiffly
 ```
 
 `uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
+
+The base install runs serially and is intentionally lightweight. To enable Dask-backed parallel execution, install the optional `dask` extra:
+
+```shell
+uv tool install --python 3.14 "xdiffly[dask]"
+```
+
+The `plot` subcommand needs the optional `plot` extra (matplotlib for static images; holoviews/panel/bokeh/datashader for the live server):
+
+```shell
+uv tool install --python 3.14 "xdiffly[plot]"
+```
 
 ## Usage
 
@@ -60,6 +72,7 @@ Options:
 Commands:
   dirs   Compare two directories of datasets.
   files  Compare two dataset files directly, even if their filenames differ.
+  plot   Plot where two netCDF files differ (static image or live server).
 
 ```
 
@@ -72,6 +85,52 @@ uv run xdiff dirs folder1 folder2 -v votemper -v vosaline
 ```
 
 ![Variables](https://github.com/anto6715/X-Diff/raw/master/docs/variables.png)
+
+To compare variables that are named differently between the two inputs, use `REF=CMP`:
+
+```shell
+uv run xdiff files reference.nc comparison.nc -v thetao=votemper -v lon=longitude
+```
+
+### Restrict to a lon/lat box
+
+When two inputs share the same grid but cover different extents (e.g. a global file vs a regional subset), crop both to a common `--bbox LON_MIN LON_MAX LAT_MIN LAT_MAX` before comparing. Both 1-D (rectilinear) and 2-D (curvilinear, e.g. NEMO `nav_lon`/`nav_lat`) coordinates are supported:
+
+```shell
+uv run xdiff files global.nc regional.nc -v thetao --bbox -6 36 30 46
+```
+
+Inputs on *different* grids or resolutions need regridding first — that is out of scope for `--bbox`.
+
+### Plot where two files differ
+
+`xdiff plot` turns the comparison from *numbers* into a *picture* of **where** two files differ. The difference is the focus — drawn on a diverging colormap centered at 0, so red/blue shows the sign of the disagreement. It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
+
+Both modes draw a plain lon/lat map (no projection or coastlines): land is the data's own NaN mask, painted grey. There are two modes, selected by the presence of `-o`:
+
+**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The map is smoothly shaded and drawn with a latitude-corrected aspect so the domain is not distorted. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
+
+```shell
+uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
+```
+
+**Live interactive server** — omit `-o` to start a local server, open the browser, and block until Ctrl-C. A sidebar drives everything: pick any **variable** in the file, step through **time/depth** levels, adjust the **colour limit** and **colormap** live (zoom preserved), toggle **smooth ↔ blocks** rendering, and optionally overlay a web-map **basemap** (Carto, OSM, Esri, …; needs internet). The difference is shown large and **datashaded**, so it **re-aggregates server-side as you zoom** (scroll to zoom) and scales to large grids; the min/max readout shows the true magnitude and hovering reads off values. The reference and comparison maps sit in a collapsed card at the bottom. Nothing is written to disk; when `xdiff` exits, the server stops.
+
+```shell
+uv run xdiff plot reference.nc comparison.nc -v thetao
+```
+
+The server binds `localhost` only. On a remote/HPC login node, forward the port over SSH and open the URL locally:
+
+```shell
+# on your laptop
+ssh -L 5006:localhost:5006 user@login-node
+# then, in that session
+xdiff plot reference.nc comparison.nc -v thetao --no-open
+# finally, open http://localhost:5006 in your local browser
+```
+
+Use `--port N` if `5006` is taken (a busy port fails immediately with a clear message — it is never silently moved, which would break the tunnel). `--no-open` skips launching a browser and just prints the URL, for headless sessions.
 
 ### Filter files
 
@@ -107,7 +166,7 @@ pattern produces the same match in both names — in this case the shared date `
 
 ### Dask file-level execution
 
-`xdiff` still defaults to serial execution, but Dask support is installed by default. When you want Dask-backed file-level execution, see [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
+`xdiff` defaults to serial execution. Dask-backed file-level execution is opt-in and requires the optional `dask` extra (`uv tool install "xdiffly[dask]"`, or `uv sync --extra dask` from a source checkout). See [docs/dask.md](docs/dask.md) for local-cluster and external-scheduler examples.
 
 ## Testing
 

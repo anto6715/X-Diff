@@ -26,7 +26,7 @@ class Artifact:
     relative_path: Path
 
     @classmethod
-    def from_path(cls, path: Path, root: Path | None = None, kind: ArtifactKind | None = None) -> "Artifact":
+    def from_path(cls, path: Path, root: Path | None = None, kind: ArtifactKind | None = None) -> Artifact:
         """Create an artifact while normalizing its root-relative location."""
         normalized_root = root or path.parent
         normalized_path = path

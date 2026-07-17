@@ -1,9 +1,7 @@
 """Helpers for regex-based artifact and filename matching."""
 
 import re
-
 from pathlib import Path
-from typing import Dict, List
 
 
 def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool:
@@ -38,10 +36,10 @@ def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool
 
 
 def find_file_matches(
-    reference_input_files: List[Path],
-    comparison_input_files: List[Path],
+    reference_input_files: list[Path],
+    comparison_input_files: list[Path],
     common_pattern: str = None,
-) -> Dict[Path, List[Path]]:
+) -> dict[Path, list[Path]]:
     """
     For each file in reference_input_files,
     return a list of file with the same filename or with the same substring matching common_pattern.

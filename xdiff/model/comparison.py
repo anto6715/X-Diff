@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from xdiff.model.artifact import Artifact
 from xdiff.model.compare_result import CompareResult
@@ -25,7 +25,7 @@ class Comparison:
         reference_file: Path,
         comparison_file: Path | None,
         exception: Exception | None = None,
-    ) -> "Comparison":
+    ) -> Comparison:
         return cls(
             reference_artifact=Artifact.from_path(reference_file),
             comparison_artifact=(Artifact.from_path(comparison_file) if comparison_file is not None else None),

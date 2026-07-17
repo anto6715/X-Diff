@@ -5,19 +5,20 @@ import pytest
 import xarray as xr
 
 import xdiff.conf as settings
-
 from xdiff.comparators.netcdf import (
     compare_datasets,
     compare_files,
     compare_variables,
     compute_relative_error,
+    crop_to_bbox,
     find_time_dims_name,
     get_dataset_variables,
+    locate_horizontal_coords,
     select_last_time_step,
 )
 from xdiff.compare import compare
-from xdiff.exceptions import AllNaN, LastTimestepTimeCheckException
-from xdiff.model import CompareResult
+from xdiff.exceptions import LastTimestepTimeCheckException
+from xdiff.model import BoundingBox, CompareResult
 
 
 def make_data_array(values, dims=("x",), dtype=None):
@@ -42,7 +43,7 @@ def test_get_dataset_variables_defaults_skip_string_like_values():
 
     variables = get_dataset_variables(dataset, settings.DEFAULT_VARIABLES_TO_CHECK)
 
-    assert variables == ["temp", "time"]
+    assert variables == [("temp", "temp"), ("time", "time")]
 
 
 def test_get_dataset_variables_respects_explicit_variable_selection():
@@ -55,7 +56,7 @@ def test_get_dataset_variables_respects_explicit_variable_selection():
 
     variables = get_dataset_variables(dataset, ["label", "temp", "missing"])
 
-    assert variables == ["temp"]
+    assert variables == [("temp", "temp")]
 
 
 def test_find_time_dims_name_returns_single_time_dimension():
@@ -152,12 +153,38 @@ def test_compare_variables_allows_coordinate_value_mismatches():
     assert result.relative_error == 0.5
 
 
-def test_compare_variables_raises_on_all_nan_values():
+def test_compare_variables_treats_matching_all_nan_fields_as_identical():
     reference = make_data_array([np.nan, np.nan])
     comparison = make_data_array([np.nan, np.nan])
 
-    with pytest.raises(AllNaN, match="All nan values found"):
-        compare_variables(reference, comparison, "temp", last_time_step=False)
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.passed
+    assert result.min_diff == 0.0
+    assert result.max_diff == 0.0
+    assert result.mask_equal is True
+    assert "only NaN" in result.note
+
+
+def test_compare_variables_fails_when_all_nan_but_masks_differ():
+    reference = make_data_array([1.0, np.nan])
+    comparison = make_data_array([np.nan, 2.0])
+
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert not result.passed
+    assert result.mask_equal is False
+    assert "no overlapping valid points" in result.description
+
+
+def test_compare_variables_treats_empty_fields_as_identical():
+    reference = make_data_array([], dtype="float64")
+    comparison = make_data_array([], dtype="float64")
+
+    result = compare_variables(reference, comparison, "temp", last_time_step=False)
+
+    assert result.passed
+    assert "empty" in result.note
 
 
 def test_compare_variables_detects_mask_mismatch():
@@ -167,6 +194,19 @@ def test_compare_variables_detects_mask_mismatch():
     result = compare_variables(reference, comparison, "temp", last_time_step=False)
 
     assert result.mask_equal is False
+
+
+def test_compare_variables_does_not_wrap_around_on_unsigned_integers():
+    # Regression: uint8 subtraction wraps (10 - 12 -> 254), which used to
+    # corrupt the diff metrics. The diff must reflect the true signed values.
+    reference = make_data_array([10, 20, 30], dtype="uint8")
+    comparison = make_data_array([12, 18, 35], dtype="uint8")
+
+    result = compare_variables(reference, comparison, "counts", last_time_step=False)
+
+    assert result.min_diff == -5.0
+    assert result.max_diff == 2.0
+    assert result.relative_error == pytest.approx(2 / 12)
 
 
 def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled():
@@ -197,6 +237,17 @@ def test_compare_variables_allows_non_time_variables_with_time_in_the_name():
     assert result.passed is True
 
 
+def test_compare_variables_rejects_mapped_time_coordinate_with_last_time_step():
+    # A mapped time axis has differently-named dims on each side; the guard must
+    # still fire (detection is by dtype/shape, not by name).
+    values = ["2024-01-01T00:00:00", "2024-01-02T00:00:00"]
+    reference = make_data_array(values, dims=("time",), dtype="datetime64[ns]")
+    comparison = make_data_array(values, dims=("time_counter",), dtype="datetime64[ns]")
+
+    with pytest.raises(LastTimestepTimeCheckException, match="Can't compare time"):
+        compare_variables(reference, comparison, "time -> time_counter", last_time_step=True)
+
+
 def test_compare_datasets_records_variable_level_errors():
     reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
     comparison = xr.Dataset()
@@ -205,6 +256,29 @@ def test_compare_datasets_records_variable_level_errors():
 
     assert len(results) == 1
     assert results[0].variable == "temp"
+    assert results[0].description != "-"
+
+
+def test_compare_datasets_maps_differently_named_variables():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"votemper": ("x", [1.0, 2.0, 3.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert results[0].passed
+    assert results[0].variable == "thetao -> votemper"
+
+
+def test_compare_datasets_reports_missing_mapped_comparison_variable():
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"other": ("x", [1.0, 2.0])})
+
+    results = compare_datasets(reference, comparison, [("thetao", "votemper")], last_time_step=False)
+
+    assert len(results) == 1
+    assert not results[0].passed
+    assert results[0].variable == "thetao -> votemper"
     assert results[0].description != "-"
 
 
@@ -219,6 +293,95 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     assert len(results) == 1
     assert results[0].variable == "temp"
     assert results[0].relative_error == 0.0
+
+
+def _rectilinear_dataset(lon_values, lat_values):
+    longitudes, latitudes = np.meshgrid(lon_values, lat_values)
+    return xr.Dataset(
+        {"sst": (("lat", "lon"), longitudes + latitudes)},
+        coords={
+            "lon": ("lon", lon_values, {"units": "degrees_east"}),
+            "lat": ("lat", lat_values, {"units": "degrees_north"}),
+        },
+    )
+
+
+def test_locate_horizontal_coords_prefers_standard_name():
+    dataset = xr.Dataset(
+        coords={
+            "xc": ("xc", [1.0, 2.0], {"standard_name": "longitude"}),
+            "yc": ("yc", [1.0, 2.0], {"standard_name": "latitude"}),
+        }
+    )
+    assert locate_horizontal_coords(dataset) == ("xc", "yc")
+
+
+def test_locate_horizontal_coords_falls_back_to_common_names():
+    dataset = xr.Dataset(coords={"nav_lon": ("x", [1.0, 2.0]), "nav_lat": ("x", [1.0, 2.0])})
+    assert locate_horizontal_coords(dataset) == ("nav_lon", "nav_lat")
+
+
+def test_crop_to_bbox_curvilinear_grid():
+    ys, xs = np.mgrid[0:10, 0:10]
+    dataset = xr.Dataset(
+        {"thetao": (("y", "x"), np.ones((10, 10)))},
+        coords={"nav_lon": (("y", "x"), xs * 1.0), "nav_lat": (("y", "x"), ys * 1.0)},
+    )
+
+    cropped = crop_to_bbox(dataset, BoundingBox(lon_min=2, lon_max=5, lat_min=2, lat_max=5))
+
+    assert dict(cropped.sizes) == {"y": 4, "x": 4}
+
+
+def test_crop_to_bbox_one_dimensional_auxiliary_coordinates():
+    # lon/lat are 1-D but auxiliary (their dims are x/y, not lon/lat), so they
+    # are not indexable by .sel and must be cropped by masking instead.
+    dataset = xr.Dataset(
+        {"sst": (("y", "x"), np.zeros((5, 5)))},
+        coords={
+            "lon": ("x", np.arange(-2.0, 3.0), {"units": "degrees_east"}),
+            "lat": ("y", np.arange(-2.0, 3.0), {"units": "degrees_north"}),
+        },
+    )
+
+    cropped = crop_to_bbox(dataset, BoundingBox(lon_min=-1, lon_max=1, lat_min=-1, lat_max=1))
+
+    assert dict(cropped.sizes) == {"y": 3, "x": 3}
+
+
+def test_crop_to_bbox_raises_when_box_is_outside_extent():
+    dataset = _rectilinear_dataset(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
+
+    with pytest.raises(ValueError, match="selects no data"):
+        crop_to_bbox(dataset, BoundingBox(lon_min=100, lon_max=110, lat_min=80, lat_max=89))
+
+
+def test_crop_to_bbox_raises_when_coordinates_absent():
+    dataset = xr.Dataset({"v": ("a", [1.0, 2.0, 3.0])})
+
+    with pytest.raises(ValueError, match="no longitude/latitude coordinates"):
+        crop_to_bbox(dataset, BoundingBox(lon_min=-5, lon_max=5, lat_min=-5, lat_max=5))
+
+
+def test_compare_files_bbox_aligns_different_extents_on_the_same_grid(tmp_path):
+    reference = _rectilinear_dataset(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
+    comparison = _rectilinear_dataset(np.arange(-5.0, 16.0), np.arange(-10.0, 11.0))
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+
+    # Same shape but shifted extent: without a box the fields differ...
+    without_box = compare_files(reference_path, comparison_path, ["sst"], last_time_step=False)
+    assert not without_box[0].passed
+
+    # ...cropped to a common window they are identical.
+    with_box = compare_files(
+        reference_path,
+        comparison_path,
+        ["sst"],
+        last_time_step=False,
+        bbox=BoundingBox(lon_min=-5, lon_max=5, lat_min=-5, lat_max=5),
+    )
+    assert with_box[0].passed
 
 
 def test_compare_yields_no_match_comparison():

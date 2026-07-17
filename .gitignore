@@ -15,3 +15,6 @@ coverage.xml
 # extensions
 *.txt
 *.nc
+# Plot outputs (e.g. `xdiff plot ... -o diff.png`); tracked docs screenshots are kept.
+*.png
+!docs/*.png
