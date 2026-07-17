@@ -47,7 +47,7 @@ The package name is `xdiff`; the installed CLI command is also `xdiff` (entrypoi
 
 ## Conventions
 
-- Python 3.10–3.14; local env is 3.14. Start new modules with `from __future__ import annotations`.
+- Python 3.11–3.14; local env pins 3.14.6. Start new modules with `from __future__ import annotations`.
 - `snake_case` modules/functions, `PascalCase` classes; prefer `pathlib.Path`; keep explicit type hints on public paths.
 - Ruff is committed (`[tool.ruff]` in `pyproject.toml`) and enforced in CI: `uv run ruff check` + `uv run ruff format`. Match surrounding style, avoid unrelated reformatting.
 - `compare/ncdiff.py` is a legacy compatibility proxy to `comparators.netcdf` — keep it working but don't extend it.

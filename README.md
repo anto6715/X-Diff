@@ -4,7 +4,7 @@
 Today, X-Diff supports detailed comparison of netCDF files and helps users identify differences between datasets stored
 in netCDF format.
 
-![Python](https://img.shields.io/badge/Python-3.10--3.14-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.11--3.14-blue.svg)
 [![Tests](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/anto6715/X-Diff/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/anto6715/X-Diff/graph/badge.svg?branch=master)](https://codecov.io/gh/anto6715/X-Diff)
 
@@ -22,7 +22,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Install in a local virtual environment (recommended for development)
 
-`xdiff` currently supports Python 3.10 through 3.14. Create the project-local environment and install dependencies from `uv.lock` with:
+`xdiff` currently supports Python 3.11 through 3.14. Create the project-local environment and install dependencies from `uv.lock` with:
 
 ```shell
 uv sync --python 3.14

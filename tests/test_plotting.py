@@ -427,6 +427,37 @@ def test_build_dashboard_disables_map_controls_for_1d_variable():
     assert toggles and all(w.disabled for w in toggles)
 
 
+def test_build_dashboard_survives_unplottable_variable():
+    """Regression: a variable discovery lists but slicing cannot difference (shape mismatch,
+    all-NaN level) must not blank the dashboard.
+
+    ``open_plot_source`` lists a variable from its dims alone; ``_build_variable_plot`` only
+    raises later, inside ``source.slice`` (during a Panel callback). Unlike the static renderer
+    it has no chance to record it as skipped up front, so the server must surface the reason in
+    place instead of letting the exception escape the callback and serve an empty page.
+    """
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import build_dashboard
+    from xdiff.plotting.spec import PlotSource, VariableHandle
+
+    def slicer(index, selection):
+        raise ValueError("shape (5, 5) vs (4, 5)")
+
+    source = PlotSource(
+        Path("ref.nc"),
+        Path("cmp.nc"),
+        [VariableHandle(label="thetao", is_map=True, extra_dims=())],
+        slicer,
+    )
+
+    dashboard = build_dashboard(source)  # previously raised straight out of rebuild_for_variable
+
+    assert isinstance(dashboard, pn.template.FastListTemplate)
+    main_holder = dashboard.main.objects[1]
+    assert "cannot plot this slice" in main_holder.objects[0].object
+
+
 def test_build_dashboard_constructs_curvilinear_quadmesh():
     import panel as pn
 

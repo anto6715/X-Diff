@@ -156,7 +156,14 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         # plot); colour limit and colormap are bound in place and never trigger this.
         index = var_select.value
         selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
-        variable = source.slice(index, selection)
+        try:
+            variable = source.slice(index, selection)
+        except (RuntimeError, ValueError) as exc:
+            # A slice can fail past discovery (ref/cmp shape mismatch, an all-NaN level): the
+            # static renderer records these as skipped, so here we surface the reason in place
+            # rather than let it escape the callback and blank the whole dashboard.
+            main_holder[:] = [_unplottable(panel, handles[index].label, exc)]
+            return
         main_holder[:] = [
             _rendered_variable(
                 holoviews,
@@ -182,9 +189,13 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         state["selects"] = selects
         dims_box[:] = selects or [panel.pane.Markdown("_no time / depth dimensions_", margin=(0, 10))]
         if handle.is_map:
-            variable = source.slice(index, {dim.name: dim.default for dim in handle.extra_dims})
-            end = _slider_end(variable)
-            climit.param.update(start=0.0, end=end, value=min(variable.diff_limit, end), step=end / 100.0)
+            try:
+                variable = source.slice(index, {dim.name: dim.default for dim in handle.extra_dims})
+            except (RuntimeError, ValueError):
+                pass  # redraw() surfaces the reason; leave the colour-limit bounds as they are
+            else:
+                end = _slider_end(variable)
+                climit.param.update(start=0.0, end=end, value=min(variable.diff_limit, end), step=end / 100.0)
         redraw()
 
     rebuild_for_variable(var_select.value)
@@ -256,6 +267,16 @@ def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, base
         reference = panel.Row(*_reference_maps(holoviews, variable, basemap=basemap), sizing_mode="stretch_width")
     card = panel.Card(reference, title="Reference & comparison", collapsed=True, sizing_mode="stretch_width")
     return panel.Column(metadata, hero, card, sizing_mode="stretch_width")
+
+
+def _unplottable(panel, label: str, exc: Exception):
+    """A message pane shown when a chosen variable/slice cannot be differenced.
+
+    Keeps the server symmetric with the static renderer's skip policy: a variable that
+    discovery lists but that cannot be reduced to a comparable pair (shape mismatch, an
+    all-NaN level) explains itself in place instead of crashing the page.
+    """
+    return panel.pane.Markdown(f"## {label}\n\n_cannot plot this slice: {exc}_")
 
 
 def _metadata(panel, variable: VariablePlot):
