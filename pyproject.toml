@@ -1,6 +1,6 @@
 [project]
 name = "xdiffly"
-version = "0.3.1"
+version = "0.4.0"
 description = "X-Diff: a general-purpose tool for exploring differences between datasets (netCDF today, more targets to come)"
 authors = [
     {name = "Antonio Mariani", email = "antonio.mariani@cmcc.it"}
