@@ -44,17 +44,23 @@ uv tool install --python 3.14 xdiffly
 
 `uv tool install` installs `xdiffly` in uv's global tool environment (similar to `pipx`), not inside this repository's `.venv`. After installation, run it as `xdiff`.
 
-The base install runs serially and is intentionally lightweight. To enable Dask-backed parallel execution, install the optional `dask` extra:
+The base install runs serially and is intentionally lightweight. Optional extras add the heavier backends:
+
+| Extra | Adds |
+|---|---|
+| `dask` | Dask-backed parallel execution (`-w`, `--dask-scheduler`, `--dask-scheduler-file`) |
+| `plot` | The `plot` subcommand (matplotlib for static images; holoviews/panel/bokeh/datashader for the live server) |
+| `all` | Both of the above |
+
+To install everything:
 
 ```shell
-uv tool install --python 3.14 "xdiffly[dask]"
+uv tool install --python 3.14 "xdiffly[all]"
 ```
 
-The `plot` subcommand needs the optional `plot` extra (matplotlib for static images; holoviews/panel/bokeh/datashader for the live server):
+Or pick one, e.g. `"xdiffly[dask]"` or `"xdiffly[plot]"`.
 
-```shell
-uv tool install --python 3.14 "xdiffly[plot]"
-```
+> **Ask for every extra in one command.** Each `uv tool install` replaces the tool's environment, so installing `"xdiffly[plot]"` after `"xdiffly[dask]"` removes Dask. Use `"xdiffly[all]"` or `"xdiffly[dask,plot]"` instead. (`pip install` adds to what is already installed, so it does not have this problem.)
 
 ## Usage
 
