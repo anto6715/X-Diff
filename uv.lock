@@ -1907,7 +1907,7 @@ wheels = [
 
 [[package]]
 name = "xdiffly"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -1918,6 +1918,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "bokeh" },
+    { name = "dask" },
+    { name = "datashader" },
+    { name = "distributed" },
+    { name = "holoviews" },
+    { name = "matplotlib" },
+    { name = "numba" },
+    { name = "panel" },
+]
 dask = [
     { name = "bokeh" },
     { name = "dask" },
@@ -1938,7 +1948,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "towncrier" },
-    { name = "xdiffly", extra = ["dask", "plot"] },
+    { name = "xdiffly", extra = ["all"] },
 ]
 
 [package.metadata]
@@ -1957,8 +1967,10 @@ requires-dist = [
     { name = "panel", marker = "extra == 'plot'", specifier = ">=1.4.0,<2.0.0" },
     { name = "rich", specifier = ">=13.7.1,<14.0.0" },
     { name = "xarray", specifier = ">=2024.6.0,<2027.0.0" },
+    { name = "xdiffly", extras = ["dask"], marker = "extra == 'all'" },
+    { name = "xdiffly", extras = ["plot"], marker = "extra == 'all'" },
 ]
-provides-extras = ["dask", "plot"]
+provides-extras = ["dask", "plot", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1966,8 +1978,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=5.0,<6.0.0" },
     { name = "ruff", specifier = ">=0.14.0,<0.15.0" },
     { name = "towncrier", specifier = ">=25.8,<26.0.0" },
-    { name = "xdiffly", extras = ["dask"] },
-    { name = "xdiffly", extras = ["plot"] },
+    { name = "xdiffly", extras = ["all"] },
 ]
 
 [[package]]

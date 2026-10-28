@@ -36,6 +36,14 @@ plot = [
     "datashader>=0.16.0,<0.19.0",
     "numba>=0.60.0,<1.0.0",
 ]
+# Every optional backend at once. uv installs exactly what one command asks for:
+# `uv sync --extra X` and `uv tool install "xdiffly[X]"` drop extras from a previous
+# run, so request them together (this extra, or `xdiffly[dask,plot]`).
+# tests/test_packaging.py checks that this lists every other extra.
+all = [
+    "xdiffly[dask]",
+    "xdiffly[plot]",
+]
 
 [project.urls]
 Homepage = "https://github.com/anto6715/X-Diff"
@@ -52,10 +60,8 @@ dev = [
     "pytest-cov>=5.0,<6.0.0",
     "towncrier>=25.8,<26.0.0",
     "ruff>=0.14.0,<0.15.0",
-    # Pull the optional Dask backend so its tests run in dev/CI.
-    "xdiffly[dask]",
-    # Pull the optional plotting backend so its tests run in dev/CI.
-    "xdiffly[plot]",
+    # Pull every optional backend so their tests run in dev/CI.
+    "xdiffly[all]",
 ]
 
 [build-system]

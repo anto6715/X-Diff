@@ -10,11 +10,15 @@ Dask is an optional backend and is **not** part of the base install. Install it 
 uv tool install "xdiffly[dask]"
 ```
 
+Each `uv tool install` replaces the previous one's extras, so if you also want the `plot` subcommand, install both at once with `"xdiffly[all]"` (or `"xdiffly[dask,plot]"`).
+
 From a source checkout, sync the extra with uv:
 
 ```shell
 uv sync --extra dask
 ```
+
+`uv sync` also removes extras you don't list. To keep the plotting backend too, use `uv sync --extra all`.
 
 The dev dependency group already includes the `dask` extra, so it is available in the development environment:
 
