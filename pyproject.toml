@@ -65,8 +65,14 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.5,<0.10.0"]
+requires = ["uv_build>=0.12.24,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+# uv 0.12.22 started writing a newer uv.lock format (revision 5); older uv writes the old one,
+# so mixing them makes the lock flip on every re-lock. Keep local uv and the version pinned
+# in .github/workflows/*.yml inside this range.
+required-version = ">=0.12.22,<0.14"
 
 [tool.uv.build-backend]
 module-name = "xdiff"

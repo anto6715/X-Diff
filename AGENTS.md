@@ -127,7 +127,7 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 
 ## CI Workflows
 
-- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs.
+- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs. All workflows pin the same uv version (`version:` on `setup-uv`); bump them together, and keep `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml` on the same series so local and CI uv write the same `uv.lock` format.
 - `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, builds the changelog with `towncrier`, and commits the result back to the release branch.
 
 ## Branching & Release Flow
