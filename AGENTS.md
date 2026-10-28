@@ -37,7 +37,7 @@ xdiff/
     └── global_settings.py  Default settings (DEFAULT_NAME_TO_COMPARE, DEFAULT_COMMON_PATTERN, …)
 ```
 
-Root files `pyproject.toml`, `uv.lock`, and `README.md` define packaging and user-facing behavior. `docs/` stores screenshot assets. `a/` and `b/` are bundled sample directories for local smoke tests. `changes.d/` holds towncrier changelog fragments.
+Root files `pyproject.toml`, `uv.lock`, and `README.md` define packaging and user-facing behavior. `docs/` stores screenshot assets and feature guides. No sample data is tracked (`*.nc` is gitignored). `changes.d/` holds towncrier changelog fragments.
 
 ## CLI Commands
 
@@ -84,7 +84,7 @@ Use `uv` for all local setup and execution:
 - `uv sync --no-default-groups --extra dask`: base runtime plus the optional Dask backend (`dask`, `distributed`, `bokeh`); this is what `pip install "xdiffly[dask]"` provides.
 - `uv sync --no-default-groups --extra plot`: base runtime plus the optional plotting backend (`matplotlib` for static images; `holoviews`, `panel`, `bokeh`, `datashader` for the live server); this is what `pip install "xdiffly[plot]"` provides. Required for the `plot` subcommand. No cartopy/geoviews — maps are plain lon/lat with the data's NaN mask as land; the live server can optionally overlay holoviews' built-in web-map tiles (Carto/OSM/Esri) when online.
 - `uv sync --no-default-groups --extra all`: base runtime plus every optional backend (`pip install "xdiffly[all]"`). `uv sync` and `uv tool install` install exactly what one command asks for and drop extras you leave out, so request every extra you need in a single command. When adding a new extra, also list it in `all` (`tests/test_packaging.py` enforces this).
-- `uv run xdiff dirs a b`: run the CLI against the bundled sample folders.
+- `uv run xdiff files <ref.nc> <cmp.nc>` / `uv run xdiff dirs <ref_dir> <cmp_dir>`: run the CLI against your own netCDF files.
 - `uv run xdiff --help`: verify argument parsing and exposed options.
 - `uv build`: create wheel and sdist artifacts in `dist/`.
 - `uv run python -m compileall xdiff`: quick syntax check before opening a PR.
