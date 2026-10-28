@@ -6,6 +6,20 @@ This repository uses `towncrier` to collect unreleased changes under `changes.d/
 
 <!-- towncrier release notes start -->
 
+## __[xdiff-0.4.1](https://github.com/anto6715/X-Diff/tree/0.4.1) - 2026-10-28__
+
+### 🔧 Bugfixes
+
+[#31](https://github.com/anto6715/X-Diff/pull/31) - Add an `all` extra (`xdiffly[all]`) that installs both the `dask` and `plot` backends. uv installs exactly what one command asks for, so installing `xdiffly[plot]` after `xdiffly[dask]` (or vice versa) used to drop the first backend; the install docs now say to request every extra at once.
+
+### Miscellaneous
+
+[#30](https://github.com/anto6715/X-Diff/pull/30) - Retire the `develop` branch: feature and fix PRs now target `master` directly. Everyday PRs are tested on Python 3.11 and 3.14; `release/X.Y.Z` PRs and pushes to `master` run the full 3.11–3.14 matrix.
+
+[#32](https://github.com/anto6715/X-Diff/pull/32) - The release workflow now regenerates `uv.lock` after bumping the version, so the lock file no longer keeps the previous release's version.
+
+[#33](https://github.com/anto6715/X-Diff/pull/33) - CI and the release/publish workflows now use uv 0.12.24 (was 0.11.29), the build backend is `uv_build` 0.12, and `pyproject.toml` requires uv >=0.12.22 locally, so local and CI uv write the same `uv.lock` format.
+
 ## __[xdiff-0.4.0](https://github.com/anto6715/X-Diff/tree/0.4.0) - 2026-07-17__
 
 ### 🚀 Features
