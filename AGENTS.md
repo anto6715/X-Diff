@@ -126,8 +126,18 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 
 ## CI Workflows
 
-- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on develop PRs, the full 3.11–3.14 range on master PRs/pushes. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs.
+- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs.
 - `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, builds the changelog with `towncrier`, and commits the result back to the release branch.
+
+## Branching & Release Flow
+
+There is no `develop` branch: `master` is the integration branch, and a release is a tag, not a branch state.
+
+1. Branch off `master` (e.g. `feat/...`, `fix/...`, `ci/...`) and open a PR back into `master` with a changelog fragment. Fragments accumulate in `changes.d/` until the next release.
+2. To release, branch `release/X.Y.Z` off `master` and open a PR into `master`. The release changelog workflow bumps the version and builds `CHANGES.md` on that branch; merge it once CI is green.
+3. Publish a GitHub Release tagged `X.Y.Z` (a leading `v` is accepted). `.github/workflows/publish.yml` builds and uploads to PyPI.
+
+Avoid pushing directly to `master`: pushes skip the towncrier check.
 
 ## Commit & Pull Request Guidelines
 

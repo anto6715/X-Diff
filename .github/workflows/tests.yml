@@ -42,8 +42,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && !(github.base_ref == 'master' && startsWith(github.head_ref, 'release/')) }}
         run: uv run towncrier check --compare-with origin/${{ github.base_ref }}
 
-  # Full matrix at release time (PRs to master and pushes to master); the
-  # endpoints (oldest + newest) on develop PRs, where version breaks surface.
+  # Full matrix at release time (release/X.Y.Z PRs and pushes to master); the
+  # endpoints (oldest + newest) on every other PR, where version breaks surface.
   setup-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -51,8 +51,10 @@ jobs:
     steps:
       - name: Select Python versions
         id: pick
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.base_ref }}" = "develop" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] && [[ "$HEAD_REF" != release/* ]]; then
             echo 'python-versions=["3.11", "3.14"]' >> "$GITHUB_OUTPUT"
           else
             echo 'python-versions=["3.11", "3.12", "3.13", "3.14"]' >> "$GITHUB_OUTPUT"
