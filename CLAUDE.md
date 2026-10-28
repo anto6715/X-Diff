@@ -15,7 +15,9 @@ All tooling runs through `uv`:
 - `uv run ruff check xdiff tests` and `uv run ruff format --check xdiff tests` — the exact lint/format checks CI runs.
 - `uv run xdiff files <ref.nc> <cmp.nc>` / `uv run xdiff dirs <ref_dir> <cmp_dir>` — run the CLI. No sample data is tracked (`*.nc` is gitignored), so bring your own files.
 
-Every non-release PR needs a towncrier fragment in `changes.d/` (`<issue>.<feature|bugfix|doc|misc>.md`) or CI's `towncrier check` fails. See `AGENTS.md` for the release flow.
+Every non-release PR needs a towncrier fragment in `changes.d/` (`<issue>.<feature|bugfix|doc|misc>.md`) or CI's `towncrier check` fails.
+
+**Branching:** trunk-based, with no `develop` branch. Feature/fix PRs go straight into `master` and are tested on Python 3.11 + 3.14; `release/X.Y.Z` PRs into `master` get the full 3.11–3.14 matrix and an automatic version bump + `CHANGES.md` build; publishing a GitHub Release ships to PyPI. Details are in `AGENTS.md` ("Branching & Release Flow").
 
 ## Architecture
 
