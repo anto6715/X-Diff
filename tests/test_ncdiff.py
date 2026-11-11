@@ -324,6 +324,57 @@ def test_compare_files_last_time_step_still_rejects_explicit_time_variable(tmp_p
     assert "last time step" in results[0].description
 
 
+def test_compare_files_last_time_step_skips_time_coordinate_for_the_default_sentinel(tmp_path):
+    reference_path = write_dataset(tmp_path, "reference.nc", _dataset_with_time_coordinate())
+    comparison_path = write_dataset(tmp_path, "comparison.nc", _dataset_with_time_coordinate())
+
+    results = compare_files(reference_path, comparison_path, settings.DEFAULT_VARIABLES_TO_CHECK, last_time_step=True)
+
+    assert "time" not in [result.variable for result in results]
+    assert all(result.passed for result in results)
+
+
+def test_compare_files_last_time_step_still_reports_a_mismatching_time_axis(tmp_path):
+    # Reference time is a datetime axis, comparison time is plain numbers: the two axes
+    # differ, so the time variable must stay in the selection and fail.
+    comparison = xr.Dataset(
+        {"temp": (("time", "x"), [[1.0, 2.0], [3.0, 4.0]])},
+        coords={"time": [0.0, 1.0]},
+    )
+    reference_path = write_dataset(tmp_path, "reference.nc", _dataset_with_time_coordinate())
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+
+    results = {
+        result.variable: result for result in compare_files(reference_path, comparison_path, None, last_time_step=True)
+    }
+
+    assert "time" in results
+    assert not results["time"].passed
+    assert "Data type mismatch" in results["time"].description
+
+
+def test_compare_files_last_time_step_keeps_errors_per_variable(tmp_path):
+    # A variable with two time-like dimensions cannot be reduced to a last step. That is
+    # one failed variable; it must not abort the whole file.
+    dataset = xr.Dataset(
+        {
+            "forecast": (("time", "lead_time", "x"), np.ones((2, 3, 2))),
+            "sst": (("time", "x"), np.ones((2, 2))),
+        },
+        coords={"time": np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[ns]")},
+    )
+    reference_path = write_dataset(tmp_path, "reference.nc", dataset)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", dataset)
+
+    results = {
+        result.variable: result for result in compare_files(reference_path, comparison_path, None, last_time_step=True)
+    }
+
+    assert results["sst"].passed
+    assert not results["forecast"].passed
+    assert "more than 1 time dimension" in results["forecast"].description
+
+
 def _rectilinear_dataset(lon_values, lat_values):
     longitudes, latitudes = np.meshgrid(lon_values, lat_values)
     return xr.Dataset(
