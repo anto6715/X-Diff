@@ -317,12 +317,18 @@ def plot(
         _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox)
         return
 
-    from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available, serve
+    from xdiff.plotting.renderers.server import (
+        DEFAULT_PORT,
+        ensure_backend_available,
+        ensure_port_available,
+        serve,
+    )
     from xdiff.plotting.spec import open_plot_source
 
     server_port = port if port is not None else DEFAULT_PORT
     try:
-        # Fail fast on a busy port before opening any datasets.
+        # Fail fast on a missing plot extra or a busy port before opening any datasets.
+        ensure_backend_available()
         ensure_port_available(address, server_port)
         # The live server lets you browse every variable, so open them all; -v only picks
         # which one is shown first (see _default_variable_index).

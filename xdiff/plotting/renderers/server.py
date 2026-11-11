@@ -59,6 +59,27 @@ _BASEMAPS = {
 }
 
 
+_MISSING_BACKEND_HINT = (
+    "holoviews/panel are required for the interactive server. Install the plot extra "
+    'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
+    "or pass -o FILE.png for a static image instead."
+)
+
+
+def ensure_backend_available() -> None:
+    """Fail fast (before any datasets are opened) when the ``plot`` extra is missing.
+
+    Raises ``RuntimeError`` with the install hint, which the CLI turns into a clean
+    error message instead of a traceback from deep inside :func:`serve`. This only looks
+    the packages up (no import), so the checks that follow, such as a busy port, are
+    still reported immediately when the extra is installed.
+    """
+    from importlib.util import find_spec
+
+    if any(find_spec(name) is None for name in ("holoviews", "panel")):
+        raise RuntimeError(_MISSING_BACKEND_HINT)
+
+
 def ensure_port_available(address: str, port: int) -> None:
     """Fail fast (before any datasets are opened) if ``port`` is already in use.
 
@@ -483,11 +504,7 @@ def _load_viz():
         import holoviews
         import panel
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise RuntimeError(
-            "holoviews/panel are required for the interactive server. Install the plot extra "
-            'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
-            "or pass -o FILE.png for a static image instead."
-        ) from exc
+        raise RuntimeError(_MISSING_BACKEND_HINT) from exc
     _configure_bokeh_backend(holoviews, panel)
     return holoviews, panel
 

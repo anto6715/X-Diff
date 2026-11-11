@@ -1,4 +1,5 @@
 import importlib
+import sys
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -324,6 +325,23 @@ def test_dirs_command_supports_no_progress(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["disabled"] is True
+
+
+def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_path):
+    # A None entry in sys.modules makes Python treat the package as not installed, so this
+    # exercises the real check and the real install hint.
+    monkeypatch.setitem(sys.modules, "holoviews", None)
+    reference = tmp_path / "reference.nc"
+    comparison = tmp_path / "comparison.nc"
+    reference.touch()
+    comparison.touch()
+
+    result = CliRunner().invoke(cli, ["plot", str(reference), str(comparison), "--no-open"])
+
+    # A clean click error (SystemExit), not the RuntimeError escaping as a traceback.
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "xdiffly[plot]" in result.output
 
 
 def test_shared_option_help_names_the_right_action_for_each_command():
