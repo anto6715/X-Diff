@@ -243,18 +243,16 @@ git fetch origin master:refs/remotes/origin/master
 uv run towncrier check --compare-with origin/master --staged
 ```
 
-Release notes are generated from `release/X.Y.Z` branches. Open a PR from `release/X.Y.Z` to `master`, and CI will:
+In normal feature work, contributors create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final `towncrier build --yes` is done by the release workflow.
 
-1. set `pyproject.toml` to version `X.Y.Z`
-2. run `uv lock` so `uv.lock` records the new version
-3. run `towncrier build --yes --version X.Y.Z`
-4. commit the updated `pyproject.toml`, `uv.lock`, `CHANGES.md` and consumed changelog entries back to the release branch
+### Releasing
 
-A release branch cut from `master` has no commits of its own, and GitHub refuses to open a PR without one. Until [#35](https://github.com/anto6715/X-Diff/issues/35) is resolved, push an empty commit first (`git commit --allow-empty -m "Start release X.Y.Z"`).
+There is no `develop` branch: feature and fix branches are cut from `master` and merged back into it. To release what is on `master`:
 
-In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](.github/workflows/release-changelog.yml).
-
-There is no `develop` branch: feature and fix branches are cut from `master` and merged back into it. After the release PR is merged, publish a GitHub Release tagged `X.Y.Z` to upload the package to PyPI.
+1. In the repository's **Actions** tab, run the **Release** workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) from `master` with the version, written as `X.Y.Z`.
+2. The workflow creates `release/X.Y.Z` with one commit (the version in `pyproject.toml`, the regenerated `uv.lock`, and `CHANGES.md` built from `changes.d/`), starts the test suite on that commit, and opens a pull request into `master`.
+3. Merge the pull request once its checks are green.
+4. Publish a GitHub Release tagged `X.Y.Z` (no `v` prefix). That uploads the package to PyPI.
 
 ## Author
 

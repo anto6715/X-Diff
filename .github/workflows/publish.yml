@@ -10,9 +10,10 @@ name: Publish to PyPI
 #   - Workflow:     publish.yml
 #   - Environment:  pypi
 #
-# Release flow: merge the release/X.Y.Z PR into master (the release-changelog
-# workflow bumps the version and builds CHANGES.md), then cut a GitHub Release
-# tagged X.Y.Z (a leading "v" is also accepted). That triggers this workflow.
+# Release flow: run the Release workflow (release.yml) with the version; it opens the
+# release/X.Y.Z PR with the version bump and CHANGES.md. Merge it, then cut a GitHub
+# Release tagged X.Y.Z (the convention is no "v"; a leading "v" is still accepted).
+# That triggers this workflow.
 
 on:
   release:
