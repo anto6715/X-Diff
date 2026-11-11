@@ -79,6 +79,11 @@ def compare_files(
             dataset1 = crop_to_bbox(dataset1, bbox)
             dataset2 = crop_to_bbox(dataset2, bbox)
         variables_to_compare = get_dataset_variables(dataset1, variables)
+        if last_time_step and variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
+            # The default selection includes the time coordinate, which cannot be compared
+            # on a single step. Leave it out so the option works without -v; asking for it
+            # explicitly (-v time) still reports the error.
+            variables_to_compare = [pair for pair in variables_to_compare if not _is_time_axis(dataset1[pair[0]])]
         return compare_datasets(
             dataset1,
             dataset2,

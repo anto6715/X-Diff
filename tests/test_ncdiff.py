@@ -295,6 +295,35 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     assert results[0].relative_error == 0.0
 
 
+def _dataset_with_time_coordinate():
+    return xr.Dataset(
+        {"temp": (("time", "x"), [[1.0, 2.0], [3.0, 4.0]])},
+        coords={"time": np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[ns]")},
+    )
+
+
+def test_compare_files_last_time_step_skips_time_coordinate_by_default(tmp_path):
+    reference_path = write_dataset(tmp_path, "reference.nc", _dataset_with_time_coordinate())
+    comparison_path = write_dataset(tmp_path, "comparison.nc", _dataset_with_time_coordinate())
+
+    results = compare_files(reference_path, comparison_path, None, last_time_step=True)
+
+    assert "time" not in [result.variable for result in results]
+    assert "temp" in [result.variable for result in results]
+    assert all(result.passed for result in results)
+
+
+def test_compare_files_last_time_step_still_rejects_explicit_time_variable(tmp_path):
+    reference_path = write_dataset(tmp_path, "reference.nc", _dataset_with_time_coordinate())
+    comparison_path = write_dataset(tmp_path, "comparison.nc", _dataset_with_time_coordinate())
+
+    results = compare_files(reference_path, comparison_path, ["time"], last_time_step=True)
+
+    assert len(results) == 1
+    assert not results[0].passed
+    assert "last time step" in results[0].description
+
+
 def _rectilinear_dataset(lon_values, lat_values):
     longitudes, latitudes = np.meshgrid(lon_values, lat_values)
     return xr.Dataset(
