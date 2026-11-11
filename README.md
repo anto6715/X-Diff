@@ -82,6 +82,20 @@ Commands:
 
 ```
 
+### Reading the result
+
+Each compared variable gets one row with the minimum and maximum difference (reference minus comparison), the maximum relative error, and whether the two missing-value masks are equal. A variable **passes only when it is identical on both sides**: same shape and data type, both differences and the relative error `0`, and equal masks. There is no tolerance, so a difference of `1e-12` is reported as a failure. A file pair passes when at least one variable was compared and all of them passed; a file with no counterpart, a file that cannot be read, and a pair with no comparable variables are failures.
+
+By default every data variable and every dimension coordinate **of the reference file** is compared, under the same name in the comparison file. String variables are skipped. Not compared: variables and files that exist only on the comparison side, auxiliary coordinates (for example 2-D `nav_lon`/`nav_lat`), and attributes. Two inputs that differ only in those still pass.
+
+Exit codes, so `xdiff` can be used directly in scripts and CI jobs:
+
+| Code | Meaning |
+|---|---|
+| `0` | Every compared pair passed. |
+| `1` | A pair failed, nothing was compared (for example no file matched the filter), or the run stopped on an error. |
+| `2` | Invalid command-line usage (unknown option, missing path, conflicting options). |
+
 ### Select Variables
 
 It is possible to choose which parameter to compare:
@@ -190,11 +204,9 @@ Then run the suite:
 uv run pytest --cov --cov-report=term-missing --cov-report=xml
 ```
 
-The Codecov badge will start showing a real percentage after the workflow runs successfully on GitHub and the repository is connected to Codecov.
-
 ## Changelog
 
-This repository uses `towncrier` for release notes. Every pull request must include a changelog entry under `changes.d/` for user-facing changes, for example:
+This repository uses `towncrier` for release notes. Every pull request except release PRs must include a changelog entry under `changes.d/` (CI checks it), for example:
 
 ```text
 changes.d/123.bugfix.md
@@ -221,7 +233,7 @@ If you omit `--content`, `towncrier create` will open your editor so you can wri
 Validate or preview changelog entries locally with:
 
 ```shell
-uv run towncrier build --draft --version 0.2.6
+uv run towncrier build --draft --version X.Y.Z
 ```
 
 To mirror the CI-style branch check after committing or staging your changelog entry:
@@ -234,12 +246,15 @@ uv run towncrier check --compare-with origin/master --staged
 Release notes are generated from `release/X.Y.Z` branches. Open a PR from `release/X.Y.Z` to `master`, and CI will:
 
 1. set `pyproject.toml` to version `X.Y.Z`
-2. run `towncrier build --yes --version X.Y.Z`
-3. commit the updated `CHANGES.md` and consumed changelog entries back to the release branch
+2. run `uv lock` so `uv.lock` records the new version
+3. run `towncrier build --yes --version X.Y.Z`
+4. commit the updated `pyproject.toml`, `uv.lock`, `CHANGES.md` and consumed changelog entries back to the release branch
+
+A release branch cut from `master` has no commits of its own, and GitHub refuses to open a PR without one. Until [#35](https://github.com/anto6715/X-Diff/issues/35) is resolved, push an empty commit first (`git commit --allow-empty -m "Start release X.Y.Z"`).
 
 In normal feature work, contributors should create entries with `towncrier create` and optionally preview them with `towncrier build --draft`. The final non-draft `towncrier build --yes` step is handled by the release workflow in [`.github/workflows/release-changelog.yml`](.github/workflows/release-changelog.yml).
 
-After the release PR is merged, merge `master` back into `develop` so the generated changelog and consumed entry deletions return to the integration branch.
+There is no `develop` branch: feature and fix branches are cut from `master` and merged back into it. After the release PR is merged, publish a GitHub Release tagged `X.Y.Z` to upload the package to PyPI.
 
 ## Author
 

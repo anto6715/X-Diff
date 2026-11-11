@@ -11,7 +11,7 @@ xdiff/
 ├── core/
 │   ├── main.py      Public facade: execute() and build_request() helpers
 │   ├── service.py   ComparisonService: orchestrates discovery → matching → comparison
-│   └── dask_runtime.py  Dask client helpers (lazy import, used only for non-serial modes)
+│   └── dask_runtime.py  Dask client helpers (lazy import, used only when a Dask option is given)
 ├── comparators/
 │   ├── base.py      ArtifactComparator ABC (artifact_kind + compare())
 │   └── netcdf.py    NetcdfComparator: xarray-backed numeric comparison
@@ -23,8 +23,11 @@ xdiff/
 │   └── default.py   DefaultArtifactMatcher: pairs artifacts by relative path or common pattern
 ├── exceptions/      Domain exceptions: LastTimestepTimeCheckException,
 │                    NoMatchFound, UnsupportedArtifactTypeError
-├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, CompareMode,
-│                    CompareRequest, CompareResult, Comparison, ComparisonReport, ExecutionMode
+├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, BoundingBox, CompareMode,
+│                    CompareRequest, CompareResult, Comparison, ComparisonReport
+├── plotting/
+│   ├── spec.py      PlotSpec / PlotSource builders: all the plot logic (slicing, differencing, skips)
+│   └── renderers/   matplotlib_renderer.py (static -o FILE) and server.py (live Panel/Bokeh server)
 ├── printlib/
 │   ├── formatter.py Rich-based report renderer
 │   └── progress.py  ProgressReporter hierarchy (RichProgressReporter, TextProgressReporter,
@@ -62,7 +65,7 @@ Key options across the subcommands (`-v`, `--last-time-step`, `--bbox` apply to 
 | `--dask-scheduler-file` | Attach to an external Dask scheduler via scheduler file |
 | `--no-progress` | Disable live progress bar |
 
-Exit code 0 = all comparisons passed; exit code 1 = one or more failures.
+Exit code 0 = all comparisons passed; exit code 1 = one or more failures, nothing was compared, or the run stopped on an error; exit code 2 = invalid command-line usage.
 
 `plot`-specific options (needs the `plot` extra):
 
@@ -92,7 +95,7 @@ CI mirrors the same commands (see `.github/workflows/tests.yml`):
 
 - `uv sync --group dev`: install runtime + dev dependencies.
 - `uv run ruff check xdiff tests` and `uv run ruff format --check xdiff tests`: lint and format checks (a dedicated `lint` job).
-- `uv run pytest --cov --cov-report=term-missing`: run tests with coverage across a Python 3.11–3.14 matrix.
+- `uv run pytest --cov --cov-report=term-missing`: run tests with coverage. Everyday PRs use Python 3.11 and 3.14; `release/X.Y.Z` PRs and pushes to `master` use the full 3.11–3.14 matrix.
 - `uv run towncrier check --compare-with origin/<base>`: validate changelog entries on non-release PRs.
 
 ## Coding Style & Naming Conventions
@@ -109,11 +112,11 @@ The repository runs `pytest` in CI on pull requests and pushes to `master`. Test
 uv run pytest --cov --cov-report=term-missing
 ```
 
-Every non-release PR must include at least one towncrier changelog fragment under `changes.d/` using the format `<issue>.<type>.md`, where `<type>` is one of `feature`, `bugfix`, `doc`, or `misc`. The CI `towncrier check` will fail otherwise.
+Every non-release PR must include at least one towncrier changelog fragment under `changes.d/` using the format `<PR number>.<type>.md`, where `<type>` is one of `feature`, `bugfix`, `doc`, or `misc`. The CI `towncrier check` will fail otherwise.
 
 ## Changelog Fragments
 
-Fragment files live in `changes.d/` and follow the pattern `<issue>.<type>.md`:
+Fragment files live in `changes.d/` and follow the pattern `<PR number>.<type>.md` (towncrier renders the number as a link to that pull request; use `+<name>.<type>.md` when there is no PR to link):
 
 | Type | Emoji heading |
 |---|---|
@@ -127,14 +130,15 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 ## CI Workflows
 
 - `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `base-install` job installs the runtime with no extras and no dev tools, as the built wheel (`uv sync --no-default-groups --no-editable`), on Python 3.11 and 3.14, and runs `tests/smoke_base_install.py`: the comparison commands must work and every feature that needs an extra must fail with its install hint. A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs. All workflows pin the same uv version (`version:` on `setup-uv`); bump them together, and keep `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml` on the same series so local and CI uv write the same `uv.lock` format.
-- `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, builds the changelog with `towncrier`, and commits the result back to the release branch.
+- `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, runs `uv lock` so `uv.lock` records it, builds the changelog with `towncrier`, and commits the result back to the release branch.
+- `.github/workflows/publish.yml`: triggers when a GitHub Release is published. Checks that the tag matches the package version, builds, and uploads to PyPI with Trusted Publishing.
 
 ## Branching & Release Flow
 
 There is no `develop` branch: `master` is the integration branch, and a release is a tag, not a branch state.
 
 1. Branch off `master` (e.g. `feat/...`, `fix/...`, `ci/...`) and open a PR back into `master` with a changelog fragment. Fragments accumulate in `changes.d/` until the next release.
-2. To release, branch `release/X.Y.Z` off `master` and open a PR into `master`. The release changelog workflow bumps the version and builds `CHANGES.md` on that branch; merge it once CI is green.
+2. To release, branch `release/X.Y.Z` off `master` and open a PR into `master`. A fresh release branch has no commits, so GitHub refuses the PR until you push one: use `git commit --allow-empty -m "Start release X.Y.Z"` (tracked in #35). The release changelog workflow bumps the version and builds `CHANGES.md` on that branch; merge it once CI is green.
 3. Publish a GitHub Release tagged `X.Y.Z` (a leading `v` is accepted). `.github/workflows/publish.yml` builds and uploads to PyPI.
 
 Avoid pushing directly to `master`: pushes skip the towncrier check.
