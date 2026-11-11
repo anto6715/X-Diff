@@ -32,10 +32,13 @@ def _render_report(*, progress_enabled: bool, **kwargs) -> None:
         with progress_reporter:
             report = core.execute(progress_reporter=progress_reporter, **kwargs)
         formatter.print_report(report)
-        if getattr(report, "has_failures", False):
-            raise click.exceptions.Exit(1)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+    # Raised outside the try: click's Exit subclasses RuntimeError, so the handler above
+    # would otherwise catch it and print a spurious "Error: 1".
+    if getattr(report, "has_failures", False):
+        raise click.exceptions.Exit(1)
 
 
 def _validate_runtime_options(

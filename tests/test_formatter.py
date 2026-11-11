@@ -174,3 +174,34 @@ def test_failed_result_shows_its_description_even_when_a_note_is_set():
     assert formatter.summarize_failed_result(note_only) == "salt (only a remark)"
     # A passing result keeps showing its note.
     assert formatter.result_detail(passing) == "all NaN"
+
+
+def _passing_comparison() -> Comparison:
+    return Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=[
+            CompareResult(relative_error=0.0, min_diff=0.0, max_diff=0.0, mask_equal=True, variable="temp")
+        ],
+    )
+
+
+def _failing_comparison() -> Comparison:
+    return Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=[CompareResult(variable="salt", description="mask mismatch")],
+    )
+
+
+def test_summary_status_matches_report_outcome():
+    empty = ComparisonReport(request=object(), comparisons=[])
+    passing = ComparisonReport(request=object(), comparisons=[_passing_comparison()])
+    failing = ComparisonReport(request=object(), comparisons=[_passing_comparison(), _failing_comparison()])
+
+    assert "NO COMPARISONS" in formatter.summary_status(empty)
+    assert "PASSED" in formatter.summary_status(passing)
+    assert "FAILED" in formatter.summary_status(failing)
+    # The label must never say PASSED when the CLI is about to exit 1.
+    for report in (empty, passing, failing):
+        assert ("PASSED" in formatter.summary_status(report)) is (not report.has_failures)
