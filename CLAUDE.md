@@ -19,7 +19,7 @@ Every non-release PR needs a towncrier fragment in `changes.d/` (`<PR number>.<f
 
 **Tests** have no `conftest.py` and no sample data: each test builds small xarray datasets and writes them to `tmp_path`. Dask is never started for real; tests replace the client or `dask_runtime._load_distributed` with fakes via `monkeypatch`.
 
-**Packaging:** a new optional extra must also be listed in the `all` extra (`tests/test_packaging.py` enforces it). The uv version is pinned in all three workflows and constrained by `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml`; bump them together so `uv.lock` keeps one format.
+**Packaging:** a new optional extra must also be listed in the `all` extra (`tests/test_packaging.py` enforces it). The uv version is pinned in every workflow and constrained by `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml`; bump them together so `uv.lock` keeps one format.
 
 **Branching:** trunk-based, with no `develop` branch. Feature/fix PRs go straight into `master` and are tested on Python 3.11 + 3.14; a release is prepared by running the manual **Release** workflow with a version, which opens the `release/X.Y.Z` PR (version bump, `uv.lock`, `CHANGES.md`) and runs the full 3.11–3.14 matrix on it; publishing a GitHub Release ships to PyPI. Details are in `AGENTS.md` ("Branching & Release Flow").
 

@@ -1,0 +1,100 @@
+name: Dependency drift
+
+# The regular test workflow installs the versions pinned in uv.lock. PyPI users get
+# whatever the ranges in pyproject.toml allow at install time, so this workflow re-resolves
+# those ranges on a schedule and runs the suite against both ends:
+#   - highest:        the newest allowed version of everything (what a fresh install gets)
+#   - lowest-direct:  a low resolution of the direct dependencies, to test the lower bounds
+#                     in pyproject.toml. It is not guaranteed to reach every bound: an
+#                     undeclared or transitive dependency is still resolved to its newest
+#                     version and can pull a direct one above its minimum. The "Show
+#                     resolved versions" step prints what was really installed.
+# It never blocks a PR. A scheduled run that does not succeed (failed tests, or a hang cut
+# off by the timeout) opens an issue, or comments on the one already open.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays, 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      report:
+        description: Open or update the tracking issue if this manual run does not succeed
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Backstop only: the test step has its own, shorter timeout that turns a hang into a
+    # failure. A job cut off by this limit ends as "cancelled", not "failed".
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest
+            python-version: "3.14"
+          # Oldest dependencies on the oldest supported Python: old releases have no
+          # wheels for the newest interpreter.
+          - resolution: lowest-direct
+            python-version: "3.11"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          # This job runs dependency releases nobody has vetted yet; do not leave the
+          # token in .git/config for them.
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.12.24"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Re-resolve and install dependencies (${{ matrix.resolution }})
+        # --upgrade ignores the versions pinned in uv.lock. The rewritten lock file stays
+        # on the runner and is never committed.
+        run: uv sync --group dev --upgrade --resolution ${{ matrix.resolution }}
+
+      - name: Show resolved versions
+        run: uv pip list
+
+      - name: Run tests
+        # --no-sync: a plain `uv run` would re-resolve with the default strategy and undo
+        # the lowest-direct install.
+        # timeout: the suite takes well under a minute, and an untested combination can
+        # hang a test. Killing it makes the step fail (exit 124) instead of running into
+        # the job timeout.
+        run: timeout 10m uv run --no-sync pytest
+
+  report:
+    needs: test
+    # Not failure(): that is false when the test job was cancelled by its timeout. Report
+    # whenever the tests did not succeed, unless the whole run was cancelled by hand.
+    # Manual runs report only when asked to, which also lets this job be tried out.
+    if: ${{ !cancelled() && needs.test.result != 'success' && (github.event_name == 'schedule' || inputs.report) }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Scheduled dependency-drift run failed
+        run: |
+          body="The dependency-drift workflow did not succeed: $RUN_URL
+
+          It tests freshly resolved dependencies instead of the versions in \`uv.lock\`. See which matrix entry failed: \`highest\` points to a new upstream release; \`lowest-direct\` points to a lower bound in \`pyproject.toml\` that is too low. Check for an existing issue about the same cause before treating this as new."
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label bug --body "$body"
+          fi
