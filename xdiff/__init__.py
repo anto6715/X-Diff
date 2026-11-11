@@ -23,4 +23,4 @@ def validate_runtime() -> None:
 
 def setup():
     validate_runtime()
-    configure_logging(settings.LOGGING_CONFIG, settings.LOGGING)
+    configure_logging(settings.LOGGING)

@@ -1,7 +1,6 @@
 """Helpers for regex-based artifact and filename matching."""
 
 import re
-from pathlib import Path
 
 
 def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool:
@@ -33,31 +32,3 @@ def common_pattern_exists(first_str: str, second_str: str, pattern: str) -> bool
         return sorted(match1) == sorted(match2)
 
     return False
-
-
-def find_file_matches(
-    reference_input_files: list[Path],
-    comparison_input_files: list[Path],
-    common_pattern: str = None,
-) -> dict[Path, list[Path]]:
-    """
-    For each file in reference_input_files,
-    return a list of file with the same filename or with the same substring matching common_pattern.
-    If no match is found, an empty list is associated to that file.
-
-    Args:
-        reference_input_files: List of reference input files
-        comparison_input_files: List of files to compare with reference input files
-        common_pattern: regex expression to identify a common substring between two files
-
-    Returns:
-
-    """
-    to_compare = dict()
-    for ref in reference_input_files:
-        to_compare[ref] = []
-        for cmp in comparison_input_files:
-            if ref.name == cmp.name or common_pattern_exists(ref.name, cmp.name, common_pattern):
-                to_compare[ref].append(cmp)
-
-    return to_compare

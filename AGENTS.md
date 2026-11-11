@@ -34,8 +34,7 @@ xdiff/
 │                    NullProgressReporter) + create_progress_reporter() factory
 ├── utils/
 │   ├── log.py       Logging configuration helper
-│   ├── module_loading.py  import_string / cached_import helpers
-│   └── regex.py     common_pattern_exists() and find_file_matches() for filename matching
+│   └── regex.py     common_pattern_exists() for filename matching
 └── conf/
     └── global_settings.py  Default settings (DEFAULT_NAME_TO_COMPARE, DEFAULT_COMMON_PATTERN, …)
 ```
@@ -107,7 +106,7 @@ When adding a new artifact type: create a `comparators/<type>.py` implementing `
 
 ## Testing Guidelines
 
-The repository runs `pytest` in CI on pull requests and pushes to `master`. Test files live under `tests/` and follow the naming pattern `test_<module>.py` (e.g. `test_service.py`, `test_ncdiff.py`). Keep fixtures small and deterministic. Run the full suite locally with:
+The repository runs `pytest` in CI on pull requests and pushes to `master`. Test files live under `tests/` and follow the naming pattern `test_<module>.py` (e.g. `test_service.py`, `test_ncdiff.py`). The one exception is `tests/smoke_base_install.py`: it is a plain script, deliberately not named `test_*.py` so pytest does not collect it, because it runs in an environment that has neither pytest nor the extras. Keep fixtures small and deterministic. Run the full suite locally with:
 
 ```
 uv run pytest --cov --cov-report=term-missing
@@ -130,7 +129,7 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 
 ## CI Workflows
 
-- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs. All workflows pin the same uv version (`version:` on `setup-uv`); bump them together, and keep `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml` on the same series so local and CI uv write the same `uv.lock` format.
+- `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `base-install` job installs the runtime with no extras and no dev tools, as the built wheel (`uv sync --no-default-groups --no-editable`), on Python 3.11 and 3.14, and runs `tests/smoke_base_install.py`: the comparison commands must work and every feature that needs an extra must fail with its install hint. A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs. All workflows pin the same uv version (`version:` on `setup-uv`); bump them together, and keep `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml` on the same series so local and CI uv write the same `uv.lock` format.
 - `.github/workflows/release.yml`: started by hand (`workflow_dispatch`) from `master` with a version `X.Y.Z`. Checks the version is new and that `changes.d/` has fragments, creates `release/X.Y.Z` with one commit (version bump in `pyproject.toml` via `sed`, `uv lock`, `towncrier build`), starts `tests.yml` on that commit, and opens the PR into `master`. It starts the tests explicitly because a push made with the workflow token does not trigger other workflows; `workflow_dispatch` is the exception, which is why `tests.yml` has that trigger. Opening the PR needs the repository setting "Allow GitHub Actions to create and approve pull requests"; without it the workflow prints a link instead.
 - `.github/workflows/publish.yml`: triggers when a GitHub Release is published. Checks that the tag matches the package version, builds, and uploads to PyPI with Trusted Publishing.
 

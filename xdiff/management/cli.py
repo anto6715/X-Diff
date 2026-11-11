@@ -32,10 +32,13 @@ def _render_report(*, progress_enabled: bool, **kwargs) -> None:
         with progress_reporter:
             report = core.execute(progress_reporter=progress_reporter, **kwargs)
         formatter.print_report(report)
-        if getattr(report, "has_failures", False):
-            raise click.exceptions.Exit(1)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+    # Raised outside the try: click's Exit subclasses RuntimeError, so the handler above
+    # would otherwise catch it and print a spurious "Error: 1".
+    if getattr(report, "has_failures", False):
+        raise click.exceptions.Exit(1)
 
 
 def _validate_runtime_options(
@@ -80,6 +83,29 @@ def _execution_options(command):
         help="Attach to an existing Dask cluster using its scheduler address.",
     )(command)
     return command
+
+
+def _variables_option(verb: str):
+    """``-v/--variables`` for a command that will ``verb`` (compare / plot) the variables."""
+    return click.option(
+        "-v",
+        "--variables",
+        multiple=True,
+        help=(
+            f"Variables to {verb}. Repeat the option to {verb} multiple variables. "
+            f"Use REF=CMP to {verb} differently-named variables (e.g. thetao=votemper)."
+        ),
+    )
+
+
+def _last_time_step_option(verb: str):
+    """``--last-time-step`` for a command that will ``verb`` (compare / plot) the data."""
+    return click.option(
+        "--last-time-step",
+        is_flag=True,
+        default=False,
+        help=f"If enabled, {verb} only the last time step available in each file.",
+    )
 
 
 def _bbox_option(command):
@@ -142,21 +168,8 @@ def cli(ctx: click.Context) -> None:
         "Example: mfsX_date.nc and expX_date.nc -> date.nc is the common part."
     ),
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to compare. Repeat the option to compare multiple variables. "
-        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, compare only the last time step available in each file.",
-)
+@_variables_option("compare")
+@_last_time_step_option("compare")
 @_bbox_option
 @_execution_options
 def compare_directories(
@@ -204,21 +217,8 @@ def compare_directories(
     type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
     callback=_validate_netcdf_file,
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to compare. Repeat the option to compare multiple variables. "
-        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, compare only the last time step available in each file.",
-)
+@_variables_option("compare")
+@_last_time_step_option("compare")
 @_bbox_option
 @_execution_options
 def compare_files(
@@ -264,21 +264,8 @@ def compare_files(
     type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
     callback=_validate_netcdf_file,
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to plot. Repeat the option to plot multiple variables. "
-        "Use REF=CMP to plot differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, plot only the last time step available in each file.",
-)
+@_variables_option("plot")
+@_last_time_step_option("plot")
 @_bbox_option
 @click.option(
     "-o",
@@ -330,12 +317,18 @@ def plot(
         _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox)
         return
 
-    from xdiff.plotting.renderers.server import DEFAULT_PORT, ensure_port_available, serve
+    from xdiff.plotting.renderers.server import (
+        DEFAULT_PORT,
+        ensure_backend_available,
+        ensure_port_available,
+        serve,
+    )
     from xdiff.plotting.spec import open_plot_source
 
     server_port = port if port is not None else DEFAULT_PORT
     try:
-        # Fail fast on a busy port before opening any datasets.
+        # Fail fast on a missing plot extra or a busy port before opening any datasets.
+        ensure_backend_available()
         ensure_port_available(address, server_port)
         # The live server lets you browse every variable, so open them all; -v only picks
         # which one is shown first (see _default_variable_index).

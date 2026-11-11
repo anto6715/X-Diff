@@ -26,7 +26,13 @@ def get_result(cr: CompareResult) -> str:
 
 
 def result_detail(result: CompareResult) -> str:
-    """Prefer an informational note (e.g. an all-NaN identity) over the description."""
+    """Text shown next to a result: its failure reason if it failed, else its note.
+
+    ``description`` carries the reason a result failed, so a failed result shows it even
+    when a note is also set. A passing result shows its note (e.g. an all-NaN identity).
+    """
+    if not result.passed and result.description not in {"", "-"}:
+        return result.description
     return result.note or result.description
 
 
@@ -97,7 +103,7 @@ def render_summary(report: ComparisonReport) -> Panel:
     total_checks = sum(comparison_total_check_count(comparison) for comparison in report)
     failed_checks = sum(comparison_failed_check_count(comparison) for comparison in report)
     passed_checks = total_checks - failed_checks
-    status = "[bold green]PASSED[/bold green]" if failed_comparisons == 0 else "[bold red]FAILED[/bold red]"
+    status = summary_status(report)
 
     grid.add_row("Status", status)
     grid.add_row("Compared pairs", str(total_comparisons))
@@ -111,6 +117,19 @@ def render_summary(report: ComparisonReport) -> Panel:
     )
 
     return Panel.fit(grid, title="Comparison Summary", border_style="cyan")
+
+
+def summary_status(report: ComparisonReport) -> str:
+    """Return the run status shown in the summary, consistent with the exit code.
+
+    A run that compared nothing is not a success (``report.has_failures`` is true and
+    the CLI exits 1), so it gets its own label instead of ``PASSED``.
+    """
+    if report.is_empty:
+        return "[bold red]NO COMPARISONS[/bold red]"
+    if report.has_failures:
+        return "[bold red]FAILED[/bold red]"
+    return "[bold green]PASSED[/bold green]"
 
 
 def render_failed_comparisons_table(failed_comparisons: list[Comparison]) -> Table:
