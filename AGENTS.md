@@ -11,7 +11,7 @@ xdiff/
 ├── core/
 │   ├── main.py      Public facade: execute() and build_request() helpers
 │   ├── service.py   ComparisonService: orchestrates discovery → matching → comparison
-│   └── dask_runtime.py  Dask client helpers (lazy import, used only for non-serial modes)
+│   └── dask_runtime.py  Dask client helpers (lazy import, used only when a Dask option is given)
 ├── comparators/
 │   ├── base.py      ArtifactComparator ABC (artifact_kind + compare())
 │   └── netcdf.py    NetcdfComparator: xarray-backed numeric comparison
@@ -23,8 +23,11 @@ xdiff/
 │   └── default.py   DefaultArtifactMatcher: pairs artifacts by relative path or common pattern
 ├── exceptions/      Domain exceptions: LastTimestepTimeCheckException,
 │                    NoMatchFound, UnsupportedArtifactTypeError
-├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, CompareMode,
-│                    CompareRequest, CompareResult, Comparison, ComparisonReport, ExecutionMode
+├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, BoundingBox, CompareMode,
+│                    CompareRequest, CompareResult, Comparison, ComparisonReport
+├── plotting/
+│   ├── spec.py      PlotSpec / PlotSource builders: all the plot logic (slicing, differencing, skips)
+│   └── renderers/   matplotlib_renderer.py (static -o FILE) and server.py (live Panel/Bokeh server)
 ├── printlib/
 │   ├── formatter.py Rich-based report renderer
 │   └── progress.py  ProgressReporter hierarchy (RichProgressReporter, TextProgressReporter,
@@ -93,7 +96,7 @@ CI mirrors the same commands (see `.github/workflows/tests.yml`):
 
 - `uv sync --group dev`: install runtime + dev dependencies.
 - `uv run ruff check xdiff tests` and `uv run ruff format --check xdiff tests`: lint and format checks (a dedicated `lint` job).
-- `uv run pytest --cov --cov-report=term-missing`: run tests with coverage across a Python 3.11–3.14 matrix.
+- `uv run pytest --cov --cov-report=term-missing`: run tests with coverage. Everyday PRs use Python 3.11 and 3.14; `release/X.Y.Z` PRs and pushes to `master` use the full 3.11–3.14 matrix.
 - `uv run towncrier check --compare-with origin/<base>`: validate changelog entries on non-release PRs.
 
 ## Coding Style & Naming Conventions
