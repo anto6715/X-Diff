@@ -119,7 +119,7 @@ def summary_status(report: ComparisonReport) -> str:
     A run that compared nothing is not a success (``report.has_failures`` is true and
     the CLI exits 1), so it gets its own label instead of ``PASSED``.
     """
-    if len(report) == 0:
+    if report.is_empty:
         return "[bold red]NO COMPARISONS[/bold red]"
     if report.has_failures:
         return "[bold red]FAILED[/bold red]"

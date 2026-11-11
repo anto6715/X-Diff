@@ -300,3 +300,16 @@ def test_dirs_command_supports_no_progress(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["disabled"] is True
+
+
+def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "cmp").mkdir()
+
+    result = CliRunner().invoke(cli, ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "--no-progress"])
+
+    # End to end, with the real formatter: nothing was compared, so the run exits 1 and
+    # the summary must not claim it passed.
+    assert result.exit_code == 1
+    assert "NO COMPARISONS" in result.output
+    assert "PASSED" not in result.output
