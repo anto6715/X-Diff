@@ -1,4 +1,5 @@
 import importlib
+import sys
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -303,12 +304,9 @@ def test_dirs_command_supports_no_progress(monkeypatch):
 
 
 def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_path):
-    server = importlib.import_module("xdiff.plotting.renderers.server")
-
-    def missing_backend():
-        raise RuntimeError('Install the plot extra with `uv tool install "xdiffly[plot]"`.')
-
-    monkeypatch.setattr(server, "_load_viz", missing_backend)
+    # A None entry in sys.modules makes Python treat the package as not installed, so this
+    # exercises the real check and the real install hint.
+    monkeypatch.setitem(sys.modules, "holoviews", None)
     reference = tmp_path / "reference.nc"
     comparison = tmp_path / "comparison.nc"
     reference.touch()
