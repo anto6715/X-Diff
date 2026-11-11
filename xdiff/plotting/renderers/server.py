@@ -28,7 +28,7 @@ DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Da
 
 _REFERENCE_CMAP = "viridis"
 # Diverging colormaps offered for the difference (centred at 0). RdBu_r is the default.
-_DIFF_CMAPS = ("RdBu_r", "coolwarm", "seismic", "bwr", "PuOr_r")
+_DIFF_CMAPS = (DIFF_CMAP, "coolwarm", "seismic", "bwr", "PuOr_r")
 # The difference is the hero, so it gets more height; reference/comparison are secondary
 # (revealed on demand in a collapsed card). Both stretch to the page width at a fixed
 # height (a bare responsive/stretch_both collapses to zero height in a Column). The height

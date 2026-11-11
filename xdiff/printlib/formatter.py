@@ -26,7 +26,13 @@ def get_result(cr: CompareResult) -> str:
 
 
 def result_detail(result: CompareResult) -> str:
-    """Prefer an informational note (e.g. an all-NaN identity) over the description."""
+    """Text shown next to a result: its failure reason if it failed, else its note.
+
+    ``description`` carries the reason a result failed, so a failed result shows it even
+    when a note is also set. A passing result shows its note (e.g. an all-NaN identity).
+    """
+    if not result.passed and result.description not in {"", "-"}:
+        return result.description
     return result.note or result.description
 
 

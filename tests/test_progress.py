@@ -136,3 +136,18 @@ def test_rich_progress_reporter_updates_progress_and_prints_summary(monkeypatch)
     assert "a.nc vs b.nc" in captured["prints"][1]
     assert "1 check passed" in captured["prints"][1]
     assert "Completed 1/3 comparison tasks" in captured["prints"][2]
+
+
+def test_live_result_line_uses_the_failure_reason_and_truncates():
+    comparison = Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=[
+            CompareResult(variable="temp", description="shape mismatch", note="a remark"),
+            *(CompareResult(variable=f"v{index}", description="bad") for index in range(3)),
+        ],
+    )
+
+    line = progress.format_live_result(comparison, rich_markup=False)
+
+    assert line == "FAILED ref.nc vs cmp.nc (4/4 failed: temp (shape mismatch), v0 (bad), v1 (bad) (+1 more))"

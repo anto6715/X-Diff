@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -63,15 +63,14 @@ class PlotSpec:
     skipped: list[SkippedVariable]
 
 
-@dataclass(frozen=True)
-class _PlotContext:
+class _PlotContext(NamedTuple):
     """Both datasets prepared for plotting, plus what was discovered about them."""
 
     reference_ds: xr.Dataset
     comparison_ds: xr.Dataset
-    longitude_name: object
-    latitude_name: object
-    horizontal_dims: set
+    longitude_name: str | None
+    latitude_name: str | None
+    horizontal_dims: set[str]
     candidate_pairs: list[tuple[str, str]]
 
 
@@ -122,21 +121,23 @@ def build_plot_spec(
     skipped: list[SkippedVariable] = []
 
     with xr.open_dataset(reference_path) as reference_raw, xr.open_dataset(comparison_path) as comparison_raw:
-        context = _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
+        reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
+            _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
+        )
 
-        for reference_name, comparison_name in context.candidate_pairs:
+        for reference_name, comparison_name in candidate_pairs:
             label = variable_label(reference_name, comparison_name)
             try:
                 plots.append(
                     _build_variable_plot(
-                        context.reference_ds,
-                        context.comparison_ds,
+                        reference_ds,
+                        comparison_ds,
                         reference_name,
                         comparison_name,
                         label,
-                        context.longitude_name,
-                        context.latitude_name,
-                        context.horizontal_dims,
+                        longitude_name,
+                        latitude_name,
+                        horizontal_dims,
                         last_time_step=last_time_step,
                     )
                 )
@@ -360,20 +361,22 @@ def open_plot_source(
     """
     xr = load_xarray()
     reference_raw = xr.open_dataset(reference_path)
-    comparison_raw = xr.open_dataset(comparison_path)
     try:
-        context = _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
-        reference_ds = context.reference_ds
-        comparison_ds = context.comparison_ds
-        longitude_name = context.longitude_name
-        latitude_name = context.latitude_name
-        horizontal_dims = context.horizontal_dims
+        comparison_raw = xr.open_dataset(comparison_path)
+    except Exception:
+        # Do not leave the reference file open when the comparison file cannot be opened.
+        reference_raw.close()
+        raise
+    try:
+        reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
+            _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
+        )
 
         handles: list[VariableHandle] = []
         specs: list[tuple[str, str]] = []
         skipped: list[SkippedVariable] = []
 
-        for reference_name, comparison_name in context.candidate_pairs:
+        for reference_name, comparison_name in candidate_pairs:
             label = variable_label(reference_name, comparison_name)
             field = reference_ds[reference_name]
             map_dims = [dim for dim in field.dims if dim in horizontal_dims]
