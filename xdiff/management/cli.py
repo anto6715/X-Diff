@@ -82,6 +82,29 @@ def _execution_options(command):
     return command
 
 
+def _variables_option(verb: str):
+    """``-v/--variables`` for a command that will ``verb`` (compare / plot) the variables."""
+    return click.option(
+        "-v",
+        "--variables",
+        multiple=True,
+        help=(
+            f"Variables to {verb}. Repeat the option to {verb} multiple variables. "
+            f"Use REF=CMP to {verb} differently-named variables (e.g. thetao=votemper)."
+        ),
+    )
+
+
+def _last_time_step_option(verb: str):
+    """``--last-time-step`` for a command that will ``verb`` (compare / plot) the data."""
+    return click.option(
+        "--last-time-step",
+        is_flag=True,
+        default=False,
+        help=f"If enabled, {verb} only the last time step available in each file.",
+    )
+
+
 def _bbox_option(command):
     return click.option(
         "--bbox",
@@ -142,21 +165,8 @@ def cli(ctx: click.Context) -> None:
         "Example: mfsX_date.nc and expX_date.nc -> date.nc is the common part."
     ),
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to compare. Repeat the option to compare multiple variables. "
-        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, compare only the last time step available in each file.",
-)
+@_variables_option("compare")
+@_last_time_step_option("compare")
 @_bbox_option
 @_execution_options
 def compare_directories(
@@ -204,21 +214,8 @@ def compare_directories(
     type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
     callback=_validate_netcdf_file,
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to compare. Repeat the option to compare multiple variables. "
-        "Use REF=CMP to compare differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, compare only the last time step available in each file.",
-)
+@_variables_option("compare")
+@_last_time_step_option("compare")
 @_bbox_option
 @_execution_options
 def compare_files(
@@ -264,21 +261,8 @@ def compare_files(
     type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
     callback=_validate_netcdf_file,
 )
-@click.option(
-    "-v",
-    "--variables",
-    multiple=True,
-    help=(
-        "Variables to plot. Repeat the option to plot multiple variables. "
-        "Use REF=CMP to plot differently-named variables (e.g. thetao=votemper)."
-    ),
-)
-@click.option(
-    "--last-time-step",
-    is_flag=True,
-    default=False,
-    help="If enabled, plot only the last time step available in each file.",
-)
+@_variables_option("plot")
+@_last_time_step_option("plot")
 @_bbox_option
 @click.option(
     "-o",
