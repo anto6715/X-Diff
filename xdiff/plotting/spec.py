@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -20,6 +20,7 @@ from xdiff.comparators.netcdf import (
     get_dataset_variables,
     load_xarray,
     locate_horizontal_coords,
+    variable_label,
 )
 
 if TYPE_CHECKING:
@@ -62,6 +63,44 @@ class PlotSpec:
     skipped: list[SkippedVariable]
 
 
+class _PlotContext(NamedTuple):
+    """Both datasets prepared for plotting, plus what was discovered about them."""
+
+    reference_ds: xr.Dataset
+    comparison_ds: xr.Dataset
+    longitude_name: str | None
+    latitude_name: str | None
+    horizontal_dims: set[str]
+    candidate_pairs: list[tuple[str, str]]
+
+
+def _prepare_plot_context(reference_raw, comparison_raw, variables, bbox) -> _PlotContext:
+    """Crop to the bbox, locate lon/lat and select the candidate variable pairs.
+
+    Shared by the static and the live entry points so they agree on what is plottable.
+    """
+    reference_ds = crop_to_bbox(reference_raw, bbox) if bbox is not None else reference_raw
+    comparison_ds = crop_to_bbox(comparison_raw, bbox) if bbox is not None else comparison_raw
+
+    longitude_name, latitude_name = locate_horizontal_coords(reference_ds)
+    horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
+
+    candidate_pairs = get_dataset_variables(reference_ds, variables)
+    if variables is None:
+        # "All variables" also returns dims/coords (lon/lat/time); plotting those as
+        # difference fields is meaningless, so keep only the actual data variables.
+        candidate_pairs = [pair for pair in candidate_pairs if pair[0] not in reference_ds.coords]
+
+    return _PlotContext(
+        reference_ds=reference_ds,
+        comparison_ds=comparison_ds,
+        longitude_name=longitude_name,
+        latitude_name=latitude_name,
+        horizontal_dims=horizontal_dims,
+        candidate_pairs=candidate_pairs,
+    )
+
+
 def build_plot_spec(
     reference_path: Path,
     comparison_path: Path,
@@ -82,20 +121,12 @@ def build_plot_spec(
     skipped: list[SkippedVariable] = []
 
     with xr.open_dataset(reference_path) as reference_raw, xr.open_dataset(comparison_path) as comparison_raw:
-        reference_ds = crop_to_bbox(reference_raw, bbox) if bbox is not None else reference_raw
-        comparison_ds = crop_to_bbox(comparison_raw, bbox) if bbox is not None else comparison_raw
-
-        longitude_name, latitude_name = locate_horizontal_coords(reference_ds)
-        horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
-
-        candidate_pairs = get_dataset_variables(reference_ds, variables)
-        if variables is None:
-            # "All variables" also returns dims/coords (lon/lat/time); plotting those as
-            # difference fields is meaningless, so keep only the actual data variables.
-            candidate_pairs = [pair for pair in candidate_pairs if pair[0] not in reference_ds.coords]
+        reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
+            _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
+        )
 
         for reference_name, comparison_name in candidate_pairs:
-            label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+            label = variable_label(reference_name, comparison_name)
             try:
                 plots.append(
                     _build_variable_plot(
@@ -330,22 +361,23 @@ def open_plot_source(
     """
     xr = load_xarray()
     reference_raw = xr.open_dataset(reference_path)
-    comparison_raw = xr.open_dataset(comparison_path)
     try:
-        reference_ds = crop_to_bbox(reference_raw, bbox) if bbox is not None else reference_raw
-        comparison_ds = crop_to_bbox(comparison_raw, bbox) if bbox is not None else comparison_raw
-        longitude_name, latitude_name = locate_horizontal_coords(reference_ds)
-        horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
+        comparison_raw = xr.open_dataset(comparison_path)
+    except Exception:
+        # Do not leave the reference file open when the comparison file cannot be opened.
+        reference_raw.close()
+        raise
+    try:
+        reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
+            _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
+        )
 
         handles: list[VariableHandle] = []
         specs: list[tuple[str, str]] = []
         skipped: list[SkippedVariable] = []
-        candidate_pairs = get_dataset_variables(reference_ds, variables)
-        if variables is None:
-            candidate_pairs = [pair for pair in candidate_pairs if pair[0] not in reference_ds.coords]
 
         for reference_name, comparison_name in candidate_pairs:
-            label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+            label = variable_label(reference_name, comparison_name)
             field = reference_ds[reference_name]
             map_dims = [dim for dim in field.dims if dim in horizontal_dims]
             if len(map_dims) not in (1, 2):

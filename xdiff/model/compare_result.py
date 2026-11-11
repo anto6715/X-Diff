@@ -6,9 +6,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-PASSED = True
-FAILED = False
-
 
 @dataclass(frozen=True, slots=True)
 class CompareResult:

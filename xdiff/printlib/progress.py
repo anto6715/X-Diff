@@ -22,6 +22,11 @@ from rich.progress import (
 from xdiff.model.comparison import Comparison
 from xdiff.model.report import ComparisonReport
 from xdiff.model.request import CompareRequest
+from xdiff.printlib.formatter import (
+    comparison_failed_check_count,
+    comparison_failure_details,
+    comparison_total_check_count,
+)
 
 
 class ProgressReporter:
@@ -277,41 +282,12 @@ def format_live_result(comparison: Comparison, *, rich_markup: bool = True) -> s
     )
 
 
-def comparison_total_check_count(comparison: Comparison) -> int:
-    """Count the checks represented by one comparison."""
-    if comparison.exception is not None or len(comparison) == 0:
-        return 1
-    return len(comparison)
-
-
-def comparison_failed_check_count(comparison: Comparison) -> int:
-    """Count failed checks for one comparison."""
-    if comparison.exception is not None or len(comparison) == 0:
-        return 1
-    return sum(not result.passed for result in comparison)
-
-
 def comparison_failure_detail(comparison: Comparison) -> str:
-    """Summarize why one comparison failed."""
-    if comparison.exception is not None:
-        return str(comparison.exception)
-    if len(comparison) == 0:
-        return "No comparable variables were selected"
-
-    failed_results = [result_summary(result) for result in comparison if not result.passed]
-    failed_count = comparison_failed_check_count(comparison)
-    total_count = comparison_total_check_count(comparison)
-    detail = ", ".join(failed_results[:3])
-    if len(failed_results) > 3:
-        detail = f"{detail} (+{len(failed_results) - 3} more)"
-    return f"{failed_count}/{total_count} failed: {detail}"
-
-
-def result_summary(result) -> str:
-    """Return a compact label for a failed variable result."""
-    if result.description not in {"", "-"}:
-        return f"{result.variable} ({result.description})"
-    return str(result.variable)
+    """Summarize why one comparison failed, prefixed with the failed/total check counts."""
+    details = comparison_failure_details(comparison)
+    if comparison.exception is not None or len(comparison) == 0:
+        return details
+    return f"{comparison_failed_check_count(comparison)}/{comparison_total_check_count(comparison)} failed: {details}"
 
 
 def pluralize(count: int, noun: str) -> str:
