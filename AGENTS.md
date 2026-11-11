@@ -131,7 +131,7 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 ## CI Workflows
 
 - `.github/workflows/tests.yml`: runs on every PR and push to `master`. A `lint` job runs ruff (check + format) and validates changelog entries (skipped on release PRs). A `test` job runs `pytest --cov` on a Python matrix chosen by `setup-matrix`: the endpoints (3.11 + 3.14) on everyday PRs, the full 3.11–3.14 range on `release/X.Y.Z` PRs and pushes to `master`. Coverage uploads to Codecov once, from the 3.14 job. uv dependency caching is enabled on all jobs. All workflows pin the same uv version (`version:` on `setup-uv`); bump them together, and keep `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml` on the same series so local and CI uv write the same `uv.lock` format.
-- `.github/workflows/release-changelog.yml`: triggers on PRs from `release/X.Y.Z` branches into `master`. Bumps the version in `pyproject.toml` with `sed`, runs `uv lock` so `uv.lock` records it, builds the changelog with `towncrier`, and commits the result back to the release branch.
+- `.github/workflows/release.yml`: started by hand (`workflow_dispatch`) from `master` with a version `X.Y.Z`. Checks the version is new and that `changes.d/` has fragments, creates `release/X.Y.Z` with one commit (version bump in `pyproject.toml` via `sed`, `uv lock`, `towncrier build`), starts `tests.yml` on that commit, and opens the PR into `master`. It starts the tests explicitly because a push made with the workflow token does not trigger other workflows; `workflow_dispatch` is the exception, which is why `tests.yml` has that trigger. Opening the PR needs the repository setting "Allow GitHub Actions to create and approve pull requests"; without it the workflow prints a link instead.
 - `.github/workflows/publish.yml`: triggers when a GitHub Release is published. Checks that the tag matches the package version, builds, and uploads to PyPI with Trusted Publishing.
 
 ## Branching & Release Flow
@@ -139,11 +139,11 @@ Example: `changes.d/17.feature.md` with content `Add support for comparing zarr 
 There is no `develop` branch: `master` is the integration branch, and a release is a tag, not a branch state.
 
 1. Branch off `master` (e.g. `feat/...`, `fix/...`, `ci/...`) and open a PR back into `master` with a changelog fragment. Fragments accumulate in `changes.d/` until the next release.
-2. To release, branch `release/X.Y.Z` off `master` and open a PR into `master`. A fresh release branch has no commits, so GitHub refuses the PR until you push one: use `git commit --allow-empty -m "Start release X.Y.Z"` (tracked in #35). The release changelog workflow bumps the version and builds `CHANGES.md` on that branch; merge it once CI is green.
-3. Publish a GitHub Release tagged `X.Y.Z` (a leading `v` is accepted). `.github/workflows/publish.yml` builds and uploads to PyPI.
+2. To release, run the **Release** workflow from the Actions tab on `master` with the version `X.Y.Z` (or `gh workflow run release.yml -f version=X.Y.Z`). It opens the `release/X.Y.Z` PR with the version bump, `uv.lock` and `CHANGES.md`, and starts the full test matrix on it. Do not create the release branch by hand. Merge the PR once its checks are green.
+3. Publish a GitHub Release tagged `X.Y.Z`, with no `v` prefix (`publish.yml` still accepts one). `.github/workflows/publish.yml` builds and uploads to PyPI.
 
 Avoid pushing directly to `master`: pushes skip the towncrier check.
 
 ## Commit & Pull Request Guidelines
 
-Use short, imperative commit subjects (e.g. `add files subcommand`, `fix relative error for time dtype`). Pull requests should state the problem, summarize the fix, list the validation command(s) you ran, include a changelog fragment in `changes.d/`, and update screenshots in `docs/` when terminal output changes. Release PRs must come from `release/X.Y.Z` branches into `master`; the release changelog workflow handles `pyproject.toml` and `CHANGES.md` automatically.
+Use short, imperative commit subjects (e.g. `add files subcommand`, `fix relative error for time dtype`). Pull requests should state the problem, summarize the fix, list the validation command(s) you ran, include a changelog fragment in `changes.d/`, and update screenshots in `docs/` when terminal output changes. Release PRs are opened by the Release workflow from `release/X.Y.Z` branches into `master`; it handles `pyproject.toml`, `uv.lock` and `CHANGES.md`.
