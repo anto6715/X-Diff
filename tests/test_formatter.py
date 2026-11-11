@@ -144,3 +144,64 @@ def test_render_failed_comparisons_table_highlights_failed_checks():
     assert formatter.comparison_failed_check_count(failed_variables) == 1
     assert formatter.comparison_failure_type(exception) == "No match"
     assert formatter.comparison_failure_details(failed_variables) == "temp (shape mismatch)"
+
+
+def _failed_comparison(*results: CompareResult) -> Comparison:
+    return Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=list(results),
+    )
+
+
+def test_failure_details_truncate_after_three_variables():
+    comparison = _failed_comparison(*(CompareResult(variable=f"v{index}", description="bad") for index in range(5)))
+
+    assert formatter.comparison_failure_details(comparison) == "v0 (bad), v1 (bad), v2 (bad) (+2 more)"
+
+
+def test_failed_result_shows_its_description_even_when_a_note_is_set():
+    with_both = CompareResult(variable="temp", description="shape mismatch", note="a remark")
+    note_only = CompareResult(variable="salt", note="only a remark")
+    passing = CompareResult(
+        relative_error=0.0, min_diff=0.0, max_diff=0.0, mask_equal=True, variable="sst", note="all NaN"
+    )
+
+    # The failure reason must not be hidden by a note.
+    assert formatter.result_detail(with_both) == "shape mismatch"
+    assert formatter.summarize_failed_result(with_both) == "temp (shape mismatch)"
+    # With no failure reason, the note is the only detail available.
+    assert formatter.summarize_failed_result(note_only) == "salt (only a remark)"
+    # A passing result keeps showing its note.
+    assert formatter.result_detail(passing) == "all NaN"
+
+
+def _passing_comparison() -> Comparison:
+    return Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=[
+            CompareResult(relative_error=0.0, min_diff=0.0, max_diff=0.0, mask_equal=True, variable="temp")
+        ],
+    )
+
+
+def _failing_comparison() -> Comparison:
+    return Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp.nc")),
+        compare_results=[CompareResult(variable="salt", description="mask mismatch")],
+    )
+
+
+def test_summary_status_matches_report_outcome():
+    empty = ComparisonReport(request=object(), comparisons=[])
+    passing = ComparisonReport(request=object(), comparisons=[_passing_comparison()])
+    failing = ComparisonReport(request=object(), comparisons=[_passing_comparison(), _failing_comparison()])
+
+    assert "NO COMPARISONS" in formatter.summary_status(empty)
+    assert "PASSED" in formatter.summary_status(passing)
+    assert "FAILED" in formatter.summary_status(failing)
+    # The label must never say PASSED when the CLI is about to exit 1.
+    for report in (empty, passing, failing):
+        assert ("PASSED" in formatter.summary_status(report)) is (not report.has_failures)

@@ -79,12 +79,40 @@ def compare_files(
             dataset1 = crop_to_bbox(dataset1, bbox)
             dataset2 = crop_to_bbox(dataset2, bbox)
         variables_to_compare = get_dataset_variables(dataset1, variables)
+        if last_time_step and variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
+            # The default selection includes the time coordinate, which cannot be compared
+            # on a single step. Leave it out so the option works without -v; asking for it
+            # explicitly (-v time) still reports the error.
+            variables_to_compare = _without_time_axes(dataset1, dataset2, variables_to_compare)
         return compare_datasets(
             dataset1,
             dataset2,
             variables_to_compare,
             last_time_step=last_time_step,
         )
+
+
+def _without_time_axes(
+    reference: xr.Dataset,
+    comparison: xr.Dataset,
+    pairs: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Drop the pairs that ``compare_variables`` would reject under ``--last-time-step``.
+
+    Only a pair that is a datetime time axis on *both* sides is dropped: that is exactly
+    the case that raises ``LastTimestepTimeCheckException``. A time axis that differs
+    between the files (other calendar, undecoded units, missing) stays in the selection
+    so the mismatch is still reported.
+    """
+    kept: list[tuple[str, str]] = []
+    for reference_name, comparison_name in pairs:
+        if comparison_name in comparison and is_time_coordinate_variable(
+            reference[reference_name], comparison[comparison_name]
+        ):
+            logger.debug("Skipping time axis %s: it cannot be compared on a single time step", reference_name)
+            continue
+        kept.append((reference_name, comparison_name))
+    return kept
 
 
 # CF/attribute and common-name heuristics for locating horizontal coordinates.
@@ -189,6 +217,13 @@ def _as_variable_pair(item: str | tuple[str, str]) -> tuple[str, str]:
     return reference_name, comparison_name
 
 
+def variable_label(reference_name: str, comparison_name: str) -> str:
+    """Display label for a variable pair: the name, or ``ref -> cmp`` when they differ."""
+    if reference_name == comparison_name:
+        return reference_name
+    return f"{reference_name} -> {comparison_name}"
+
+
 def compare_datasets(
     reference: xr.Dataset,
     comparison: xr.Dataset,
@@ -200,7 +235,7 @@ def compare_datasets(
 
     for item in variables:
         reference_name, comparison_name = _as_variable_pair(item)
-        label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+        label = variable_label(reference_name, comparison_name)
         logger.info("Comparing %s", label)
         try:
             reference_field = reference[reference_name]
@@ -355,6 +390,10 @@ def is_time_coordinate_variable(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> b
 
 
 def _is_time_axis(da: xr.DataArray) -> bool:
+    if da.ndim != 1:
+        # Only a 1-D variable can be an axis. Returning early also keeps a variable with
+        # several time-like dimensions from raising here, outside the per-variable handling.
+        return False
     time_dimension = find_time_dims_name(da.dims)
     return time_dimension is not None and da.dims == (time_dimension,) and is_time_dtype(da.dtype)
 

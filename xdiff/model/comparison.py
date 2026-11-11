@@ -57,9 +57,6 @@ class Comparison:
     def extend(self, results: list[CompareResult]) -> None:
         self.compare_results.extend(results)
 
-    def set_exception(self, exception: Exception) -> None:
-        self.exception = exception
-
     @property
     def passed(self) -> bool:
         return (

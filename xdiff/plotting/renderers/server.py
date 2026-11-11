@@ -19,18 +19,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from xdiff.plotting.renderers import DIFF_CMAP, LAND_COLOR
+
 if TYPE_CHECKING:
     from xdiff.plotting.spec import DimControl, PlotSource, VariablePlot
 
 DEFAULT_PORT = 5006  # fixed & predictable for a one-time SSH tunnel; not the Dask :8787
 
 _REFERENCE_CMAP = "viridis"
-_DIFF_CMAP = "RdBu_r"
 # Diverging colormaps offered for the difference (centred at 0). RdBu_r is the default.
-_DIFF_CMAPS = ("RdBu_r", "coolwarm", "seismic", "bwr", "PuOr_r")
-# NaN cells (land / masked) are painted this neutral grey. On the diverging diff colormap
-# white already means "no difference", so leaving NaN white would be ambiguous.
-_LAND_COLOR = "#b0b0b0"
+_DIFF_CMAPS = (DIFF_CMAP, "coolwarm", "seismic", "bwr", "PuOr_r")
 # The difference is the hero, so it gets more height; reference/comparison are secondary
 # (revealed on demand in a collapsed card). Both stretch to the page width at a fixed
 # height (a bare responsive/stretch_both collapses to zero height in a Column). The height
@@ -59,6 +57,27 @@ _BASEMAPS = {
     "Esri Terrain": "EsriTerrain",
     "OpenTopoMap": "OpenTopoMap",
 }
+
+
+_MISSING_BACKEND_HINT = (
+    "holoviews/panel are required for the interactive server. Install the plot extra "
+    'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
+    "or pass -o FILE.png for a static image instead."
+)
+
+
+def ensure_backend_available() -> None:
+    """Fail fast (before any datasets are opened) when the ``plot`` extra is missing.
+
+    Raises ``RuntimeError`` with the install hint, which the CLI turns into a clean
+    error message instead of a traceback from deep inside :func:`serve`. This only looks
+    the packages up (no import), so the checks that follow, such as a busy port, are
+    still reported immediately when the extra is installed.
+    """
+    from importlib.util import find_spec
+
+    if any(find_spec(name) is None for name in ("holoviews", "panel")):
+        raise RuntimeError(_MISSING_BACKEND_HINT)
 
 
 def ensure_port_available(address: str, port: int) -> None:
@@ -136,7 +155,7 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         value=min(default_index, len(handles) - 1),
     )
     climit = panel.widgets.FloatSlider(name="colour limit (±)", start=0.0, end=1.0, value=0.5, step=0.01)
-    cmap_select = panel.widgets.Select(name="Colormap", options=list(_DIFF_CMAPS), value=_DIFF_CMAP)
+    cmap_select = panel.widgets.Select(name="Colormap", options=list(_DIFF_CMAPS), value=DIFF_CMAP)
     # color="primary" highlights the active mode (the selected button is filled), so it is
     # clear at a glance which of smooth/blocks is applied without toggling to compare.
     render_toggle = panel.widgets.RadioButtonGroup(
@@ -324,7 +343,7 @@ def _reference_maps(holoviews, variable: VariablePlot, *, basemap):
 def _clipping(basemap) -> dict:
     # With a basemap, masked (NaN) cells are transparent so the tiles show through; without
     # one, they are painted grey (land) since there is nothing underneath.
-    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap is not None else {"NaN": _LAND_COLOR}
+    return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap is not None else {"NaN": LAND_COLOR}
 
 
 def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap):
@@ -485,11 +504,7 @@ def _load_viz():
         import holoviews
         import panel
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise RuntimeError(
-            "holoviews/panel are required for the interactive server. Install the plot extra "
-            'with `uv sync --extra plot` or `uv tool install "xdiffly[plot]"`, '
-            "or pass -o FILE.png for a static image instead."
-        ) from exc
+        raise RuntimeError(_MISSING_BACKEND_HINT) from exc
     _configure_bokeh_backend(holoviews, panel)
     return holoviews, panel
 

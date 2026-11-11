@@ -26,8 +26,14 @@ class ComparisonReport:
         self.comparisons.append(comparison)
 
     @property
+    def is_empty(self) -> bool:
+        """True when the run compared nothing (no file pair was found or matched)."""
+        return len(self.comparisons) == 0
+
+    @property
     def passed(self) -> bool:
-        return len(self.comparisons) > 0 and all(comparison.passed for comparison in self.comparisons)
+        # An empty run is not a success: nothing was verified.
+        return not self.is_empty and all(comparison.passed for comparison in self.comparisons)
 
     @property
     def has_failures(self) -> bool:
