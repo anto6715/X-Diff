@@ -1,0 +1,81 @@
+name: Dependency drift
+
+# The regular test workflow installs the versions pinned in uv.lock. PyPI users get
+# whatever the ranges in pyproject.toml allow at install time, so this workflow re-resolves
+# those ranges on a schedule and runs the suite against both ends:
+#   - highest:        the newest allowed version of everything (what a fresh install gets)
+#   - lowest-direct:  the oldest allowed version of each direct dependency (are the
+#                     lower bounds in pyproject.toml still true?)
+# It never blocks a PR. A failing scheduled run opens an issue (or comments on the open one).
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays, 05:17 UTC
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The suite takes well under a minute; a hang with an untested combination should not
+    # hold a runner for the default six hours.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest
+            python-version: "3.14"
+          # Oldest dependencies on the oldest supported Python: old releases have no
+          # wheels for the newest interpreter.
+          - resolution: lowest-direct
+            python-version: "3.11"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.12.24"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Re-resolve and install dependencies (${{ matrix.resolution }})
+        # --upgrade ignores the versions pinned in uv.lock. The rewritten lock file stays
+        # on the runner and is never committed.
+        run: uv sync --group dev --upgrade --resolution ${{ matrix.resolution }}
+
+      - name: Show resolved versions
+        run: uv pip list
+
+      - name: Run tests
+        # --no-sync: a plain `uv run` would re-resolve with the default strategy and undo
+        # the lowest-direct install.
+        run: uv run --no-sync pytest
+
+  report:
+    needs: test
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Scheduled dependency-drift run failed
+        run: |
+          body="The scheduled dependency-drift workflow failed: $RUN_URL
+
+          The suite passes with the versions in \`uv.lock\` but not with freshly resolved ones. See the failing matrix entry: \`highest\` means a new upstream release broke something; \`lowest-direct\` means a lower bound in \`pyproject.toml\` is too low."
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label bug --body "$body"
+          fi
