@@ -10,12 +10,12 @@ def test_setup_configures_logging_for_supported_python(monkeypatch):
     monkeypatch.setattr(
         xdiff,
         "configure_logging",
-        lambda config, logging: called.append((config, logging)),
+        lambda logging: called.append(logging),
     )
 
     xdiff.setup()
 
-    assert called == [(xdiff.settings.LOGGING_CONFIG, xdiff.settings.LOGGING)]
+    assert called == [xdiff.settings.LOGGING]
 
 
 def test_setup_rejects_unsupported_python_before_configuring_logging(monkeypatch):
@@ -25,7 +25,7 @@ def test_setup_rejects_unsupported_python_before_configuring_logging(monkeypatch
     monkeypatch.setattr(
         xdiff,
         "configure_logging",
-        lambda config, logging: called.append((config, logging)),
+        lambda logging: called.append(logging),
     )
 
     with pytest.raises(RuntimeError, match="supports Python 3.11 through 3.14"):

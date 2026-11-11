@@ -1,34 +1,25 @@
-from pathlib import Path
-
-from xdiff.utils.regex import common_pattern_exists, find_file_matches
+from xdiff.utils.regex import common_pattern_exists
 
 
 def test_common_pattern_exists_returns_false_when_pattern_is_none():
     assert common_pattern_exists("a.nc", "b.nc", None) is False
 
 
-def test_find_file_matches_matches_same_filename():
-    reference = Path("reference/file.nc")
-    comparison = Path("comparison/file.nc")
-
-    matches = find_file_matches([reference], [comparison])
-
-    assert matches == {reference: [comparison]}
-
-
-def test_find_file_matches_matches_on_common_pattern():
-    reference = Path("reference/my-simu_19820101_grid_T.nc")
-    comparison = Path("comparison/another-exp_19820101_grid_T.nc")
-
-    matches = find_file_matches([reference], [comparison], r"\d{8}_grid_T\.nc")
-
-    assert matches == {reference: [comparison]}
+def test_common_pattern_exists_matches_the_same_substring_in_both_names():
+    assert common_pattern_exists(
+        "my-simu_19820101_grid_T.nc",
+        "another-exp_19820101_grid_T.nc",
+        r"\d{8}_grid_T\.nc",
+    )
 
 
-def test_find_file_matches_returns_empty_list_when_no_match_exists():
-    reference = Path("reference/file_a.nc")
-    comparison = Path("comparison/file_b.nc")
+def test_common_pattern_exists_rejects_different_matched_substrings():
+    assert not common_pattern_exists(
+        "my-simu_19820101_grid_T.nc",
+        "another-exp_19820102_grid_T.nc",
+        r"\d{8}_grid_T\.nc",
+    )
 
-    matches = find_file_matches([reference], [comparison], r"\d{8}_grid_T\.nc")
 
-    assert matches == {reference: []}
+def test_common_pattern_exists_rejects_names_where_the_pattern_is_absent():
+    assert not common_pattern_exists("file_a.nc", "file_b.nc", r"\d{8}_grid_T\.nc")

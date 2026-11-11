@@ -31,8 +31,7 @@ xdiff/
 │                    NullProgressReporter) + create_progress_reporter() factory
 ├── utils/
 │   ├── log.py       Logging configuration helper
-│   ├── module_loading.py  import_string / cached_import helpers
-│   └── regex.py     common_pattern_exists() and find_file_matches() for filename matching
+│   └── regex.py     common_pattern_exists() for filename matching
 └── conf/
     └── global_settings.py  Default settings (DEFAULT_NAME_TO_COMPARE, DEFAULT_COMMON_PATTERN, …)
 ```
