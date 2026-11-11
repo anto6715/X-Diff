@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 All tooling runs through `uv`:
 
-- `uv sync` — install runtime + the default `dev` group (which pulls in the `dask` and `plot` extras, so every test can run).
+- `uv sync` — install runtime + the default `dev` group (which pulls in the `all` extra, i.e. `dask` + `plot`, so every test can run).
 - `uv run pytest --cov --cov-report=term-missing` — full test suite with coverage.
 - `uv run pytest tests/test_service.py` — run one test file.
 - `uv run pytest tests/test_service.py::test_name -x` — run a single test, stop on first failure.
@@ -16,6 +16,10 @@ All tooling runs through `uv`:
 - `uv run xdiff files <ref.nc> <cmp.nc>` / `uv run xdiff dirs <ref_dir> <cmp_dir>` — run the CLI. No sample data is tracked (`*.nc` is gitignored), so bring your own files.
 
 Every non-release PR needs a towncrier fragment in `changes.d/` (`<issue>.<feature|bugfix|doc|misc>.md`) or CI's `towncrier check` fails.
+
+**Tests** have no `conftest.py` and no sample data: each test builds small xarray datasets and writes them to `tmp_path`. Dask is never started for real; tests replace the client or `dask_runtime._load_distributed` with fakes via `monkeypatch`.
+
+**Packaging:** a new optional extra must also be listed in the `all` extra (`tests/test_packaging.py` enforces it). The uv version is pinned in all three workflows and constrained by `[tool.uv] required-version` and the `uv_build` range in `pyproject.toml`; bump them together so `uv.lock` keeps one format.
 
 **Branching:** trunk-based, with no `develop` branch. Feature/fix PRs go straight into `master` and are tested on Python 3.11 + 3.14; `release/X.Y.Z` PRs into `master` get the full 3.11–3.14 matrix and an automatic version bump + `CHANGES.md` build; publishing a GitHub Release ships to PyPI. Details are in `AGENTS.md` ("Branching & Release Flow").
 
@@ -33,13 +37,19 @@ The PyPI distribution is `xdiffly`; the import package and CLI command are both 
    - Comparators live in a registry keyed by `ArtifactKind`. `compare_match()` enforces the contract: missing pair → `NoMatchFound`, kind mismatch / no comparator → `UnsupportedArtifactTypeError`, and any comparator exception is captured onto the `Comparison` instead of raised.
 4. Returns a `ComparisonReport` (request + list of `Comparison`); `printlib/formatter.py` renders it with Rich.
 
-**Comparators** (`comparators/`): `ArtifactComparator` ABC (`artifact_kind` + `compare()`). `NetcdfComparator` is the only implementation. The numeric work lives in module-level functions in `comparators/netcdf.py`: `compare_files` (opens both datasets, applies `crop_to_bbox`) → `compare_datasets` → `compare_variables`, producing `CompareResult`s with relative error, min/max diff and mask equality. By default it compares every `data_var` **plus** every dimension; string/object dtypes are skipped. Dimension-name and coordinate mismatches are logged at debug, not failed — only a shape (size) mismatch raises (see `validate_matching_metadata`).
+**Comparators** (`comparators/`): `ArtifactComparator` ABC (`artifact_kind` + `compare()`). `NetcdfComparator` is the only implementation. The numeric work lives in module-level functions in `comparators/netcdf.py`: `compare_files` (opens both datasets, applies `crop_to_bbox`) → `compare_datasets` → `compare_variables`, producing `CompareResult`s with relative error, min/max diff and mask equality. By default it compares every `data_var` **plus** every dimension; string/object dtypes are skipped. Dimension-name and coordinate mismatches are logged at debug, not failed — only a shape (size) or dtype mismatch raises (see `validate_matching_metadata`). Integer fields are promoted to float64 before subtracting, because unsigned/integer subtraction wraps around; keep that when touching the differencing code (plotting does the same).
 
 **Errors are data, not exceptions.** Past the comparator boundary, failures go on `Comparison.exception` / `CompareResult.description` (`compare_datasets` catches per variable), so one bad variable or file never aborts the report. Keep this when editing the service or comparators.
 
-**Dask is opt-in by option, not by mode.** There is no execution-mode switch: passing `-w/--dask-workers`, `--dask-scheduler` or `--dask-scheduler-file` sets `CompareRequest.uses_dask`, and the service routes through `_compare_matches_with_dask`. That submits one task per parallelizable file pair (`_can_parallelize_match`) to a client from `core/dask_runtime.py` and runs the rest inline. See `docs/dask.md`.
+**Pass/fail semantics** (`model/`): a `CompareResult` passes only when `description` is still the default `"-"`, min/max diff and relative error are exactly `0.0`, and the masks are equal. So `description` carries a failure reason and setting it fails the variable; use `note` for a remark on a passing result (e.g. both fields all-NaN). A `Comparison` with an exception or with zero results is failed, and a report with zero comparisons has failures, so an empty match set exits 1.
 
-**Plotting** (`plot` subcommand, `plotting/`): it does not use the service. `plotting/spec.py` holds all the logic (reduce to a ≤2-D slice, float-safe differencing, lon/lat pickup, skip policy), reusing helpers from `comparators/netcdf.py`. It produces a `PlotSpec` (static) or a `PlotSource` (live). The renderers in `plotting/renderers/` are deliberately thin: `matplotlib_renderer.py` for `-o FILE`, `server.py` (Panel/HoloViews/Bokeh + datashader) for the live localhost server.
+**"All variables" is a sentinel.** `settings.DEFAULT_VARIABLES_TO_CHECK` is a bare `object()`; both it and `None` mean "every data var and dimension". Compare against it with `in (None, settings.DEFAULT_VARIABLES_TO_CHECK)` as `normalize_variables` and `get_dataset_variables` do.
+
+**Kinds without a comparator.** `infer_artifact_kind()` already classifies `TEXT` and `NAMELIST` files, but nothing is registered for them, so in `dirs` mode a `--filter` that matches such files reports each pair as `UnsupportedArtifactTypeError`.
+
+**Dask is opt-in by option, not by mode.** There is no execution-mode switch: passing `-w/--dask-workers`, `--dask-scheduler` or `--dask-scheduler-file` sets `CompareRequest.uses_dask`, and the service routes through `_compare_matches_with_dask`. That submits one task per parallelizable file pair (`_can_parallelize_match`) to a client from `core/dask_runtime.py` and runs the rest inline. The task is the module-level `compare_match` with the comparator registry as an argument, and local clusters use worker processes, so comparators, matches and the request must stay picklable. See `docs/dask.md`.
+
+**Plotting** (`plot` subcommand, `plotting/`): it does not use the service. `plotting/spec.py` holds all the logic (reduce to a ≤2-D slice, float-safe differencing, lon/lat pickup, skip policy), reusing helpers from `comparators/netcdf.py`. It produces a `PlotSpec` (static) or a `PlotSource` (live). The renderers in `plotting/renderers/` are deliberately thin: `matplotlib_renderer.py` for `-o FILE`, `server.py` (Panel/HoloViews/Bokeh + datashader) for the live localhost server. `-v` means different things in the two modes: static output renders only the requested variables, while the live server always opens every variable and uses `-v` only to choose which one is shown first. Unplottable variables go on `skipped` (printed to stderr) rather than raising. The `--port` help text in `cli.py` hardcodes the default because importing `server.DEFAULT_PORT` there would load the plotting stack; keep the two in sync.
 
 **Lazy imports are deliberate and tested.** `xarray` (via `load_xarray()` in `netcdf.py`), the Dask runtime, and the whole plotting stack are imported only inside the functions that need them, to keep CLI startup fast and because `dask` and `plot` are optional extras that are absent from a base `pip install xdiffly`. `tests/test_lazy_imports.py` fails if importing `xdiff.management.cli` or `xdiff.compare` loads xarray. Put heavy or optional imports inside functions or `TYPE_CHECKING` blocks.
 
