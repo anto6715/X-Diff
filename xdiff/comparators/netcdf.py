@@ -217,6 +217,13 @@ def _as_variable_pair(item: str | tuple[str, str]) -> tuple[str, str]:
     return reference_name, comparison_name
 
 
+def variable_label(reference_name: str, comparison_name: str) -> str:
+    """Display label for a variable pair: the name, or ``ref -> cmp`` when they differ."""
+    if reference_name == comparison_name:
+        return reference_name
+    return f"{reference_name} -> {comparison_name}"
+
+
 def compare_datasets(
     reference: xr.Dataset,
     comparison: xr.Dataset,
@@ -228,7 +235,7 @@ def compare_datasets(
 
     for item in variables:
         reference_name, comparison_name = _as_variable_pair(item)
-        label = reference_name if reference_name == comparison_name else f"{reference_name} -> {comparison_name}"
+        label = variable_label(reference_name, comparison_name)
         logger.info("Comparing %s", label)
         try:
             reference_field = reference[reference_name]
