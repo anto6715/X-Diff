@@ -1,0 +1,138 @@
+name: Release
+
+# Prepares a release from master. Start it from the Actions tab ("Run workflow") with the
+# version to release. It:
+#   1. creates release/X.Y.Z from master with one commit: the version bump in
+#      pyproject.toml, the regenerated uv.lock, and CHANGES.md built from changes.d/;
+#   2. starts the Tests workflow on that commit (full Python matrix);
+#   3. opens the pull request into master.
+# Merge the PR when it is green, then publish a GitHub Release tagged X.Y.Z (no "v"),
+# which triggers publish.yml.
+#
+# Why the tests are started explicitly: a push made with the workflow token does not
+# trigger other workflows, so the release commit would otherwise never be tested before
+# the merge. workflow_dispatch is the one event that token is allowed to trigger.
+#
+# Opening the PR needs the repository setting "Allow GitHub Actions to create and approve
+# pull requests" (Settings > Actions > General). Without it the workflow still pushes the
+# branch and prints a link to open the PR by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, as X.Y.Z (no "v")
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open the pull request
+      actions: write # start the Tests workflow on the release commit
+
+    env:
+      # Passed through the environment, never interpolated into a script.
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.12.24"
+          python-version: "3.14"
+
+      - name: Validate the request
+        shell: bash
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Version '$VERSION' is not of the form X.Y.Z."
+          [[ "$GITHUB_REF" == "refs/heads/master" ]] || fail "Run this workflow from master, not from $GITHUB_REF_NAME."
+
+          current="$(uv version --short)"
+          newest="$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n 1)"
+          if [[ "$VERSION" == "$current" || "$newest" != "$VERSION" ]]; then
+            fail "Version $VERSION is not newer than the current version $current."
+          fi
+
+          if git ls-remote --exit-code --heads origin "release/$VERSION" > /dev/null; then
+            fail "Branch release/$VERSION already exists. Delete it first to start over."
+          fi
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/$VERSION" "refs/tags/v$VERSION")" ]]; then
+            fail "A tag for version $VERSION already exists."
+          fi
+
+          shopt -s nullglob
+          fragments=(changes.d/*.feature.md changes.d/*.bugfix.md changes.d/*.doc.md changes.d/*.misc.md)
+          [[ ${#fragments[@]} -gt 0 ]] || fail "No changelog fragments in changes.d/: there is nothing to release."
+
+          echo "Releasing $current -> $VERSION with ${#fragments[@]} changelog fragment(s)."
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Bump the version and build the changelog
+        shell: bash
+        run: |
+          # Keep the rendered notes for the pull request description before the real build
+          # consumes the fragments.
+          uv run towncrier build --draft --version "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+
+          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          # Record the new version in uv.lock too, or it stays on the previous release.
+          uv lock
+          uv run towncrier build --yes --version "$VERSION"
+
+          [[ "$(uv version --short)" == "$VERSION" ]] || { echo "::error::The version bump did not apply."; exit 1; }
+
+      - name: Commit and push the release branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/$VERSION"
+          git add pyproject.toml uv.lock CHANGES.md changes.d
+          git commit -m "Release $VERSION"
+          git push origin "release/$VERSION"
+
+      - name: Start the tests on the release commit
+        # The push above does not trigger tests.yml (see the note at the top of this file).
+        run: gh workflow run tests.yml --ref "release/$VERSION"
+
+      - name: Open the pull request
+        shell: bash
+        run: |
+          {
+            echo "Release $VERSION, prepared by the Release workflow from \`master\`."
+            echo
+            echo "This branch holds one commit: the version bump, the regenerated \`uv.lock\`, and \`CHANGES.md\` built from \`changes.d/\`. The Tests workflow was started on it separately; wait for its checks before merging."
+            echo
+            echo "After merging, publish a GitHub Release tagged \`$VERSION\` to upload the package to PyPI."
+            echo
+            echo "---"
+            echo
+            cat "$RUNNER_TEMP/release-notes.md"
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          if url="$(gh pr create --base master --head "release/$VERSION" --title "Release $VERSION" --body-file "$RUNNER_TEMP/pr-body.md")"; then
+            echo "Opened $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            link="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/master...release/$VERSION?expand=1"
+            echo "::warning::Could not open the pull request (is 'Allow GitHub Actions to create and approve pull requests' enabled?). Open it here: $link"
+            echo "The branch release/$VERSION is pushed. Open the pull request by hand: $link" >> "$GITHUB_STEP_SUMMARY"
+          fi

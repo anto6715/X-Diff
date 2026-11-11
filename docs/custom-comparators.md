@@ -73,7 +73,7 @@ class ZarrComparator(ArtifactComparator):
         )
         # Run your comparison logic and append one CompareResult per variable/check.
         # CompareResult fields: variable, relative_error, min_diff, max_diff,
-        #                       mask_equal, description (optional failure note)
+        #                       mask_equal, description (failure reason), note (remark on a pass)
         comparison.append(
             CompareResult(
                 variable="my_var",
@@ -86,7 +86,7 @@ class ZarrComparator(ArtifactComparator):
         return comparison
 ```
 
-A `CompareResult` is considered **passed** when `relative_error == 0` and `description` is empty. Set `description` to a non-empty string to mark it as failed with an explanation.
+A `CompareResult` is considered **passed** only when all of these hold: `min_diff`, `max_diff` and `relative_error` are exactly `0`, `mask_equal` is `True`, and `description` is left at its default (`"-"`). The field defaults are `NaN` / `False`, so a result you do not fill in is a failure. Set `description` to explain a failure; setting it always fails the result. To attach a remark to a result that should still pass, use `note` instead, and set `note` only on passing results.
 
 ### 4. Register in `xdiff/core/service.py`
 
