@@ -225,6 +225,30 @@ def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):
         )
 
     assert result.exit_code == 1
+    # The report is mocked away, so nothing at all may be printed: in particular the exit
+    # must not be reported as an error message ("Error: 1").
+    assert result.output == ""
+
+
+def test_dirs_command_reports_runtime_errors_as_click_errors(monkeypatch):
+    runner = CliRunner()
+
+    def failing_execute(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli_module.formatter, "print_report", lambda value: None)
+    monkeypatch.setattr(cli_module.core, "execute", failing_execute)
+
+    with runner.isolated_filesystem():
+        Path("ref").mkdir()
+        Path("cmp").mkdir()
+
+        result = runner.invoke(cli, ["dirs", "ref", "cmp"])
+
+    # A real error is still turned into a clean message, not a traceback.
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "Error: boom" in result.output
 
 
 def test_dirs_command_builds_progress_reporter(monkeypatch):
@@ -318,3 +342,16 @@ def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_pa
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit)
     assert "xdiffly[plot]" in result.output
+
+
+def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "cmp").mkdir()
+
+    result = CliRunner().invoke(cli, ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "--no-progress"])
+
+    # End to end, with the real formatter: nothing was compared, so the run exits 1 and
+    # the summary must not claim it passed.
+    assert result.exit_code == 1
+    assert "NO COMPARISONS" in result.output
+    assert "PASSED" not in result.output
