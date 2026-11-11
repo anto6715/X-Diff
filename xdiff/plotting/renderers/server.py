@@ -61,6 +61,15 @@ _BASEMAPS = {
 }
 
 
+def ensure_backend_available() -> None:
+    """Fail fast (before any datasets are opened) when the ``plot`` extra is missing.
+
+    Raises ``RuntimeError`` with the install hint, which the CLI turns into a clean
+    error message instead of a traceback from deep inside :func:`serve`.
+    """
+    _load_viz()
+
+
 def ensure_port_available(address: str, port: int) -> None:
     """Fail fast (before any datasets are opened) if ``port`` is already in use.
 

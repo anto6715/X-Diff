@@ -300,3 +300,23 @@ def test_dirs_command_supports_no_progress(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["disabled"] is True
+
+
+def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_path):
+    server = importlib.import_module("xdiff.plotting.renderers.server")
+
+    def missing_backend():
+        raise RuntimeError('Install the plot extra with `uv tool install "xdiffly[plot]"`.')
+
+    monkeypatch.setattr(server, "_load_viz", missing_backend)
+    reference = tmp_path / "reference.nc"
+    comparison = tmp_path / "comparison.nc"
+    reference.touch()
+    comparison.touch()
+
+    result = CliRunner().invoke(cli, ["plot", str(reference), str(comparison), "--no-open"])
+
+    # A clean click error (SystemExit), not the RuntimeError escaping as a traceback.
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "xdiffly[plot]" in result.output
