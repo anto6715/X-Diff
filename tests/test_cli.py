@@ -224,6 +224,8 @@ def test_dirs_command_returns_non_zero_when_report_has_failures(monkeypatch):
         )
 
     assert result.exit_code == 1
+    # The exit must not be reported as an error message ("Error: 1").
+    assert "Error" not in result.output
 
 
 def test_dirs_command_builds_progress_reporter(monkeypatch):
