@@ -32,3 +32,18 @@ def test_setup_rejects_unsupported_python_before_configuring_logging(monkeypatch
         xdiff.setup()
 
     assert called == []
+
+
+def test_configure_logging_applies_defaults_then_custom_settings(monkeypatch):
+    from xdiff.utils import log
+
+    calls = []
+    monkeypatch.setattr(log.logging.config, "dictConfig", calls.append)
+
+    log.configure_logging({})
+    assert calls == [log.DEFAULT_LOGGING]
+
+    calls.clear()
+    custom = {"version": 1, "incremental": True}
+    log.configure_logging(custom)
+    assert calls == [log.DEFAULT_LOGGING, custom]
