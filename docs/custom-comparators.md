@@ -86,7 +86,7 @@ class ZarrComparator(ArtifactComparator):
         return comparison
 ```
 
-A `CompareResult` is considered **passed** only when all of these hold: `min_diff`, `max_diff` and `relative_error` are exactly `0`, `mask_equal` is `True`, and `description` is left at its default (`"-"`). The field defaults are `NaN` / `False`, so a result you do not fill in is a failure. Set `description` to explain a failure; setting it always fails the result. To attach a remark to a result that should still pass, use `note` instead.
+A `CompareResult` is considered **passed** only when all of these hold: `min_diff`, `max_diff` and `relative_error` are exactly `0`, `mask_equal` is `True`, and `description` is left at its default (`"-"`). The field defaults are `NaN` / `False`, so a result you do not fill in is a failure. Set `description` to explain a failure; setting it always fails the result. To attach a remark to a result that should still pass, use `note` instead, and set `note` only on passing results.
 
 ### 4. Register in `xdiff/core/service.py`
 

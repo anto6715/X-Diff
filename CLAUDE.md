@@ -15,7 +15,7 @@ All tooling runs through `uv`:
 - `uv run ruff check xdiff tests` and `uv run ruff format --check xdiff tests` — the exact lint/format checks CI runs.
 - `uv run xdiff files <ref.nc> <cmp.nc>` / `uv run xdiff dirs <ref_dir> <cmp_dir>` — run the CLI. No sample data is tracked (`*.nc` is gitignored), so bring your own files.
 
-Every non-release PR needs a towncrier fragment in `changes.d/` (`<issue>.<feature|bugfix|doc|misc>.md`) or CI's `towncrier check` fails.
+Every non-release PR needs a towncrier fragment in `changes.d/` (`<PR number>.<feature|bugfix|doc|misc>.md`) or CI's `towncrier check` fails.
 
 **Tests** have no `conftest.py` and no sample data: each test builds small xarray datasets and writes them to `tmp_path`. Dask is never started for real; tests replace the client or `dask_runtime._load_distributed` with fakes via `monkeypatch`.
 
