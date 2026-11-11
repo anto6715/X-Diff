@@ -15,15 +15,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from xdiff.plotting.renderers import DIFF_CMAP, LAND_COLOR
+
 if TYPE_CHECKING:
     from xdiff.plotting.spec import PlotSpec, VariablePlot
 
 SUPPORTED_EXTENSIONS = (".png", ".pdf", ".svg")
-
-_DIFF_CMAP = "RdBu_r"
-# NaN cells (land / masked) are painted this neutral grey. On the diverging colormap white
-# already means "no difference", so leaving NaN white would be ambiguous. Matches the server.
-_LAND_COLOR = "#b0b0b0"
 
 
 def validate_output_extension(output: Path) -> None:
@@ -109,7 +106,7 @@ def _render_diff_map(plt, variable: VariablePlot):
         variable.difference,
         variable.lon,
         variable.lat,
-        cmap=_DIFF_CMAP,
+        cmap=DIFF_CMAP,
         vmin=-variable.diff_limit,
         vmax=variable.diff_limit,
     )
@@ -172,7 +169,7 @@ def _pcolor(axis, values, lon, lat, **kwargs):
     if isinstance(kwargs.get("cmap"), str):
         import matplotlib
 
-        kwargs["cmap"] = matplotlib.colormaps[kwargs["cmap"]].with_extremes(bad=_LAND_COLOR)
+        kwargs["cmap"] = matplotlib.colormaps[kwargs["cmap"]].with_extremes(bad=LAND_COLOR)
     if lon is not None and lat is not None:
         try:
             if lon.ndim == 1 and lat.ndim == 1:

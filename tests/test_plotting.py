@@ -19,6 +19,7 @@ from xdiff.plotting.spec import (
     SkippedVariable,
     VariablePlot,
     build_plot_spec,
+    open_plot_source,
     reduce_to_plottable,
 )
 
@@ -621,3 +622,56 @@ def test_serving_delivers_plot_glyphs_to_a_session():
         assert finite and all(count > 0 for count in finite)
     finally:
         server.stop()
+
+
+# --------------------------------------------------------------------------- shared discovery
+@pytest.mark.parametrize(
+    ("variables", "bbox"),
+    [
+        (None, None),
+        ((("thetao", "votemper"),), None),
+        (None, BoundingBox(lon_min=0.5, lon_max=2.5, lat_min=0.5, lat_max=2.5)),
+        (
+            (("thetao", "votemper"), ("missing", "missing")),
+            BoundingBox(lon_min=0.5, lon_max=2.5, lat_min=0.5, lat_max=2.5),
+        ),
+    ],
+)
+def test_static_and_live_entry_points_agree_on_what_is_plottable(tmp_path, variables, bbox):
+    field = np.arange(12.0).reshape(3, 4)
+    reference = _rectilinear_dataset(field, name="thetao")
+    reference["sst"] = (("lat", "lon"), field)
+    comparison = _rectilinear_dataset(field + 1.0, name="thetao")
+    comparison["votemper"] = (("lat", "lon"), field + 2.0)
+    comparison["sst"] = (("lat", "lon"), field + 3.0)
+    reference_path = _write(tmp_path / "ref.nc", reference)
+    comparison_path = _write(tmp_path / "cmp.nc", comparison)
+
+    spec = build_plot_spec(reference_path, comparison_path, variables, last_time_step=False, bbox=bbox)
+    source = open_plot_source(reference_path, comparison_path, variables, last_time_step=False, bbox=bbox)
+    try:
+        assert [handle.label for handle in source.variables] == [plot.label for plot in spec.variables]
+        assert [skipped.label for skipped in source.skipped] == [skipped.label for skipped in spec.skipped]
+        assert source.variables, "the case must plot at least one variable to be meaningful"
+    finally:
+        source.close()
+
+
+def test_open_plot_source_closes_reference_when_comparison_cannot_be_opened(tmp_path, monkeypatch):
+    reference_path = _write(tmp_path / "ref.nc", _rectilinear_dataset(np.ones((2, 2))))
+    opened = []
+    real_open = xr.open_dataset
+
+    def tracking_open(path, *args, **kwargs):
+        dataset = real_open(path, *args, **kwargs)
+        opened.append(dataset)
+        return dataset
+
+    monkeypatch.setattr(xr, "open_dataset", tracking_open)
+
+    with pytest.raises(Exception):  # noqa: B017 - the exact error type is xarray's/the OS's
+        open_plot_source(reference_path, tmp_path / "missing.nc", None, last_time_step=False, bbox=None)
+
+    assert len(opened) == 1
+    # A closed dataset has released its file handle.
+    assert opened[0]._close is None

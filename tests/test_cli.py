@@ -344,6 +344,19 @@ def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_pa
     assert "xdiffly[plot]" in result.output
 
 
+def test_shared_option_help_names_the_right_action_for_each_command():
+    runner = CliRunner()
+
+    for command, verb in (("dirs", "compare"), ("files", "compare"), ("plot", "plot")):
+        result = runner.invoke(cli, [command, "--help"])
+        help_text = " ".join(result.output.split())  # undo click's line wrapping
+
+        assert result.exit_code == 0
+        assert f"Variables to {verb}. Repeat the option to {verb} multiple variables." in help_text
+        assert f"Use REF=CMP to {verb} differently-named variables" in help_text
+        assert f"If enabled, {verb} only the last time step available in each file." in help_text
+
+
 def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
     (tmp_path / "ref").mkdir()
     (tmp_path / "cmp").mkdir()
