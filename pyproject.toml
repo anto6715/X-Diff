@@ -10,6 +10,9 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "xarray>=2024.6.0,<2027.0.0",
     "pandas>=2.2.2,<4.0.0",
+    # Imported directly by xdiff; 1.23.2 is the oldest numpy the minimum xarray and pandas
+    # accept on Python 3.11.
+    "numpy>=1.23.2,<3.0.0",
     "netcdf4>=1.7.1,<2.0.0",
     "rich>=13.7.1,<14.0.0",
     "click>=8.3.1,<9.0.0",
