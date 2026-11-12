@@ -14,7 +14,9 @@ small (no cartopy/geoviews).
 
 from __future__ import annotations
 
+import logging
 import socket
+import threading
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -117,6 +119,7 @@ def serve(
 ) -> None:
     """Serve the dashboard at ``http://{address}:{port}`` and block until Ctrl-C."""
     _, panel = _load_viz()
+    _start_warm_up()
     try:
         panel.serve(
             build_application(source, default_index=default_index),
@@ -128,6 +131,43 @@ def serve(
         )
     except KeyboardInterrupt:  # pragma: no cover - interactive Ctrl-C path
         pass
+
+
+def _start_warm_up() -> threading.Thread:
+    """Compile datashader's kernels in the background while the browser opens.
+
+    datashader compiles its kernels (numba) on first use: about 2.5 s on the first map and
+    0.5 s on the first switch to "blocks". Running them once on tiny data, in a daemon thread
+    started with the server, overlaps that with the browser opening and the first data read.
+    """
+    thread = threading.Thread(target=_warm_up_datashader, name="xdiff-datashader-warm-up", daemon=True)
+    thread.start()
+    return thread
+
+
+def _warm_up_datashader() -> None:
+    """Run the datashader kernels the dashboard uses once, on tiny 32-bit data.
+
+    Calls datashader directly, not HoloViews, so it shares no plotting state with the page
+    being served. A failure only means the first map pays the compilation, so it is logged
+    and ignored.
+    """
+    try:
+        import datashader
+        import xarray
+
+        values = np.arange(30 * 50, dtype=np.float32).reshape(30, 50)
+        values[5:9, 5:9] = np.nan
+        array = xarray.DataArray(
+            values, dims=["y", "x"], coords={"y": np.arange(30.0), "x": np.arange(50.0)}, name="value"
+        )
+        # Down-sample along x and up-sample along y, as a basin map in a wide window does.
+        canvas = datashader.Canvas(plot_width=40, plot_height=45, x_range=(0, 49), y_range=(0, 29))
+        for method in ("linear", "nearest"):  # "smooth" and "blocks"
+            canvas.raster(array, upsample_method=method, downsample_method="mean")
+        canvas.quadmesh(array, x="x", y="y", agg=datashader.mean("value"))  # meshes and basemaps
+    except Exception:  # noqa: BLE001 - an optimisation only; the page works without it
+        logging.getLogger("xdiff").debug("datashader warm-up failed", exc_info=True)
 
 
 def build_dashboard(source: PlotSource, *, default_index: int = 0):
@@ -167,7 +207,21 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     map_controls = (climit, cmap_select, render_toggle, basemap_select)
     dims_box = panel.Column()  # sidebar "Dimensions" section, repopulated per variable
     main_holder = panel.Column(sizing_mode="stretch_width")  # main content, replaced on redraw
-    state: dict = {"names": [], "selects": []}
+    # "slice" memoises the last slice, so a render-mode or basemap change, and the second
+    # look on a variable switch, reuse it; "card_open" keeps the reference card as the user
+    # left it across redraws.
+    state: dict = {"names": [], "selects": [], "slice": None, "card_open": False}
+
+    def current_slice(index: int, selection: dict):
+        key = (index, tuple(sorted(selection.items())))
+        if state["slice"] is not None and state["slice"][0] == key:
+            return state["slice"][1]
+        variable = source.slice(index, selection)
+        state["slice"] = (key, variable)
+        return variable
+
+    def remember_card(is_open: bool) -> None:
+        state["card_open"] = is_open
 
     def redraw(*_events) -> None:
         # Re-slice for the current variable + dim selection and replace the main content. A
@@ -176,7 +230,7 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         index = var_select.value
         selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
         try:
-            variable = source.slice(index, selection)
+            variable = current_slice(index, selection)
         except (RuntimeError, ValueError) as exc:
             # A slice can fail past discovery (ref/cmp shape mismatch, an all-NaN level): the
             # static renderer records these as skipped, so here we surface the reason in place
@@ -192,6 +246,8 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
                 basemap=basemap_select.value,
                 cmap_widget=cmap_select,
                 climit_widget=climit,
+                card_open=state["card_open"],
+                on_card_toggle=remember_card,
             )
         ]
 
@@ -209,7 +265,7 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         dims_box[:] = selects or [panel.pane.Markdown("_no time / depth dimensions_", margin=(0, 10))]
         if handle.is_map:
             try:
-                variable = source.slice(index, {dim.name: dim.default for dim in handle.extra_dims})
+                variable = current_slice(index, {dim.name: dim.default for dim in handle.extra_dims})
             except (RuntimeError, ValueError):
                 pass  # redraw() surfaces the reason; leave the colour-limit bounds as they are
             else:
@@ -262,17 +318,33 @@ def _dim_select(panel, dim: DimControl):
     return panel.widgets.Select(name=dim.name, options=options, value=dim.default)
 
 
-def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
+def _rendered_variable(
+    holoviews,
+    panel,
+    variable: VariablePlot,
+    *,
+    method,
+    basemap,
+    cmap_widget,
+    climit_widget,
+    card_open: bool = False,
+    on_card_toggle=None,
+):
     """Render one already-sliced variable: min/max readout, hero difference, reference card.
 
     ``basemap`` is a holoviews tile-source class name, or ``None`` for the plain grey path.
+    The reference/comparison maps are built only while their card is open: building them
+    for a collapsed card cost two extra rasterizations and two extra images per redraw.
+    ``card_open`` sets the initial state and ``on_card_toggle(is_open)`` reports changes.
     """
     metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
         hero = holoviews.Curve((_axis_1d(variable), variable.difference)).opts(
             color="red", title="difference", tools=["hover"], responsive=True, height=_DIFF_HEIGHT
         )
-        reference = _reference_overlay_1d(holoviews, variable)
+
+        def reference():
+            return _reference_overlay_1d(holoviews, variable)
     else:
         hero = _hero_map(
             holoviews,
@@ -283,8 +355,23 @@ def _rendered_variable(holoviews, panel, variable: VariablePlot, *, method, base
             cmap_widget=cmap_widget,
             climit_widget=climit_widget,
         )
-        reference = panel.Row(*_reference_maps(holoviews, variable, basemap=basemap), sizing_mode="stretch_width")
-    card = panel.Card(reference, title="Reference & comparison", collapsed=True, sizing_mode="stretch_width")
+
+        def reference():
+            return panel.Row(*_reference_maps(holoviews, variable, basemap=basemap), sizing_mode="stretch_width")
+
+    card = panel.Card(title="Reference & comparison", collapsed=not card_open, sizing_mode="stretch_width")
+
+    def fill_card() -> None:
+        if not card.collapsed and not card.objects:
+            card[:] = [reference()]
+
+    def on_collapsed(event) -> None:
+        fill_card()
+        if on_card_toggle is not None:
+            on_card_toggle(not event.new)
+
+    card.param.watch(on_collapsed, "collapsed")
+    fill_card()
     return panel.Column(metadata, hero, card, sizing_mode="stretch_width")
 
 
@@ -395,8 +482,12 @@ def _field_element(holoviews, variable: VariablePlot, values, *, web_mercator: b
     When ``web_mercator`` (basemap on), lon/lat are reprojected to Web Mercator metres and the
     field is always a ``QuadMesh`` — Web Mercator northing is non-linear in latitude, so a
     regular ``Image`` would misalign with the tiles.
+
+    Values are drawn as 32-bit floats: the rasterized image sent to the browser is half the
+    size of a 64-bit one, which matters over an SSH tunnel, and the difference itself keeps
+    full relative precision.
     """
-    values = np.asarray(values, dtype=float)
+    values = np.asarray(values, dtype=np.float32)
     lon, lat = variable.lon, variable.lat
     if web_mercator and lon is not None and lat is not None:
         mercator = _mercator_quadmesh(holoviews, np.asarray(lon, dtype=float), np.asarray(lat, dtype=float), values)

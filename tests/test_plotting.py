@@ -618,9 +618,10 @@ def test_serving_delivers_plot_glyphs_to_a_session():
         ]
         finite = [int(np.isfinite(np.asarray(model.data_source.data["image"][0])).sum()) for model in images]
         session.close()
-        # difference (hero) + reference + comparison -> at least three image glyphs...
-        assert len(images) >= 3
-        # ...and each carries real (non-blank) aggregated data, not an empty raster.
+        # The difference map is delivered (the reference/comparison maps are built only when
+        # their card is opened, see test_reference_card_is_built_only_when_opened)...
+        assert len(images) >= 1
+        # ...and each image carries real (non-blank) aggregated data, not an empty raster.
         assert finite and all(count > 0 for count in finite)
     finally:
         server.stop()
@@ -763,3 +764,134 @@ def test_regular_grid_renders_as_image_and_as_a_rectilinear_mercator_mesh():
     # 1-D coordinates stay 1-D in metres: datashader's fast rectilinear path.
     assert not mercator.interface.irregular(mercator, "x")
     assert not mercator.interface.irregular(mercator, "y")
+
+
+# --------------------------------------------------------------------------- live server: redraw cost
+def _map_variable_plot():
+    lon = np.linspace(0.0, 10.0, 6)
+    lat = np.linspace(0.0, 8.0, 5)
+    return _variable_plot(np.ones((5, 6)), reference=np.arange(30.0).reshape(5, 6), lon=lon, lat=lat)
+
+
+def test_reference_card_is_built_only_when_opened():
+    import holoviews as hv
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _load_viz, _rendered_variable
+
+    _load_viz()
+    toggles = []
+    column = _rendered_variable(
+        hv,
+        pn,
+        _map_variable_plot(),
+        method="smooth",
+        basemap=None,
+        cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+        climit_widget=pn.widgets.FloatSlider(start=0.0, end=1.0, value=0.5),
+        on_card_toggle=toggles.append,
+    )
+    card = column.objects[-1]
+    assert card.collapsed and len(card.objects) == 0  # nothing built while collapsed
+
+    card.collapsed = False
+
+    assert len(card.objects) == 1 and len(card.objects[0].objects) == 2  # reference + comparison
+    assert toggles == [True]
+
+
+def test_reference_card_reopens_filled_when_left_open():
+    import holoviews as hv
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _load_viz, _rendered_variable
+
+    _load_viz()
+    column = _rendered_variable(
+        hv,
+        pn,
+        _map_variable_plot(),
+        method="smooth",
+        basemap=None,
+        cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+        climit_widget=pn.widgets.FloatSlider(start=0.0, end=1.0, value=0.5),
+        card_open=True,
+    )
+
+    card = column.objects[-1]
+    assert not card.collapsed and len(card.objects) == 1
+
+
+def test_dashboard_slices_once_per_change_and_not_on_render_toggles():
+    from xdiff.plotting.renderers.server import build_dashboard
+
+    plots = [_map_variable_plot(), _map_variable_plot()]
+    calls = []
+    static = PlotSource.static(Path("ref.nc"), Path("cmp.nc"), plots)
+    source = PlotSource(
+        Path("ref.nc"),
+        Path("cmp.nc"),
+        static.variables,
+        lambda index, selection: calls.append(index) or plots[index],
+    )
+
+    dashboard = build_dashboard(source)
+    assert calls == [0]  # one slice for the first variable, shared by slider bounds and drawing
+
+    sidebar = dashboard.sidebar.objects
+    variable_select = next(widget for widget in sidebar if getattr(widget, "name", "") == "Variable")
+    render_toggle = next(widget for widget in sidebar if getattr(widget, "name", "") == "Rendering")
+    render_toggle.value = "blocks"
+    assert calls == [0]  # re-rendering the same slice does not read it again
+
+    variable_select.value = 1
+    assert calls == [0, 1]
+
+
+def test_fields_are_sent_as_32_bit_floats():
+    import holoviews as hv
+
+    from xdiff.plotting.renderers.server import _field_element, _load_viz
+
+    _load_viz()
+    variable = _map_variable_plot()
+
+    for web_mercator in (False, True):
+        element = _field_element(hv, variable, variable.difference, web_mercator=web_mercator)
+        assert element.dimension_values("value").dtype == np.float32
+
+
+def test_live_source_enlarges_the_chunk_cache_while_open(tmp_path):
+    import netCDF4
+
+    before = netCDF4.get_chunk_cache()
+    reference = _write(tmp_path / "ref.nc", _rectilinear_dataset(np.ones((3, 4))))
+    comparison = _write(tmp_path / "cmp.nc", _rectilinear_dataset(np.ones((3, 4))))
+
+    source = open_plot_source(reference, comparison, None, last_time_step=False, bbox=None)
+    try:
+        assert netCDF4.get_chunk_cache()[0] >= 1024**3
+    finally:
+        source.close()
+
+    assert netCDF4.get_chunk_cache() == before
+
+
+def test_datashader_warm_up_runs_and_serve_starts_it_first(monkeypatch):
+    from xdiff.plotting.renderers import server
+
+    server._warm_up_datashader()  # must not raise
+
+    events = []
+
+    class FakePanel:
+        @staticmethod
+        def serve(*args, **kwargs):
+            events.append("serve")
+
+    monkeypatch.setattr(server, "_load_viz", lambda: (None, FakePanel))
+    monkeypatch.setattr(server, "_start_warm_up", lambda: events.append("warm-up"))
+
+    server.serve(PlotSource.static(Path("ref.nc"), Path("cmp.nc"), []), port=_free_port(), open_browser=False)
+
+    assert events == ["warm-up", "serve"]
