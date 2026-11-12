@@ -421,8 +421,10 @@ def _field_element(holoviews, variable: VariablePlot, values, *, web_mercator: b
 def _mercator_quadmesh(holoviews, lon, lat, values):
     """A QuadMesh with lon/lat reprojected to Web Mercator metres (to align with tiles), or None.
 
-    Rectilinear 1-D coordinates are meshed to 2-D first; datashader's ``lnglat_to_meters`` then
-    converts them elementwise. Returns None if the coordinates and values cannot be lined up.
+    Web Mercator easting depends only on longitude and northing only on latitude, so 1-D
+    coordinates stay 1-D: a rectilinear mesh, which datashader rasterizes several times faster
+    than a 2-D one. 2-D coordinates are converted elementwise. Returns None if the coordinates
+    and values cannot be lined up.
     """
     from datashader.utils import lnglat_to_meters
 
@@ -430,7 +432,9 @@ def _mercator_quadmesh(holoviews, lon, lat, values):
         oriented = _orient(values, lat.size, lon.size)
         if oriented is None:
             return None
-        lon, lat, values = *np.meshgrid(lon, lat), oriented
+        easting, _ = lnglat_to_meters(lon, np.zeros_like(lon))
+        _, northing = lnglat_to_meters(np.zeros_like(lat), lat)
+        return holoviews.QuadMesh((easting, northing, oriented), kdims=["x", "y"], vdims=["value"])
     elif not (lon.ndim == 2 and lat.ndim == 2 and lon.shape == values.shape and lat.shape == values.shape):
         return None
     easting, northing = lnglat_to_meters(lon, lat)

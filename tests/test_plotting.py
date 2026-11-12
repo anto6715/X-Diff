@@ -19,8 +19,10 @@ from xdiff.plotting.spec import (
     SkippedVariable,
     VariablePlot,
     build_plot_spec,
+    find_regular_grid,
     open_plot_source,
     reduce_to_plottable,
+    regular_axes,
 )
 
 
@@ -675,3 +677,89 @@ def test_open_plot_source_closes_reference_when_comparison_cannot_be_opened(tmp_
     assert len(opened) == 1
     # A closed dataset has released its file handle.
     assert opened[0]._close is None
+
+
+# --------------------------------------------------------------------------- regular grids in 2-D coordinates
+def _nemo_style_grid(ny=12, nx=20, fill_block=(slice(0, 4), slice(0, 6))):
+    """2-D lon/lat of a regular 0.25° grid with a (-1, -1) fill block, as NEMO writes them."""
+    lon_axis = np.linspace(-6.0, -6.0 + 0.25 * (nx - 1), nx)
+    lat_axis = np.linspace(30.0, 30.0 + 0.25 * (ny - 1), ny)
+    lon2d, lat2d = np.meshgrid(lon_axis, lat_axis)
+    lon2d[fill_block] = -1.0
+    lat2d[fill_block] = -1.0
+    return lon_axis, lat_axis, lon2d, lat2d
+
+
+def test_find_regular_grid_recovers_axes_behind_fill_values():
+    lon_axis, lat_axis, lon2d, lat2d = _nemo_style_grid()
+
+    grid = find_regular_grid(lon2d, lat2d)
+
+    assert grid is not None
+    np.testing.assert_allclose(grid.lon, lon_axis)
+    np.testing.assert_allclose(grid.lat, lat_axis)
+    assert grid.fill[:4, :6].all() and grid.fill.sum() == 24
+
+
+def test_find_regular_grid_rejects_a_curvilinear_grid():
+    _, _, lon2d, lat2d = _nemo_style_grid(fill_block=(slice(0, 0), slice(0, 0)))
+    rows = np.arange(lon2d.shape[0])[:, None]
+    lon2d = lon2d + 0.05 * rows  # longitude now drifts with the row: a sheared grid
+
+    assert find_regular_grid(lon2d, lat2d) is None
+
+
+def test_find_regular_grid_rejects_a_single_displaced_point():
+    _, _, lon2d, lat2d = _nemo_style_grid()
+    lon2d[8, 10] += 0.1  # 40% of a cell: not a fill value, not on the axis
+
+    assert find_regular_grid(lon2d, lat2d) is None
+
+
+def test_regular_axes_keep_2d_coordinates_when_a_fill_point_holds_data():
+    _, _, lon2d, lat2d = _nemo_style_grid()
+    has_data = np.zeros(lon2d.shape, dtype=bool)
+    assert np.ndim(regular_axes(lon2d, lat2d, has_data)[0]) == 1
+
+    has_data[1, 1] = True  # inside the fill block: its position is unknown
+    lon, lat = regular_axes(lon2d, lat2d, has_data)
+
+    assert lon is lon2d and lat is lat2d
+
+
+def test_build_plot_spec_gives_1d_axes_for_a_regular_grid_stored_in_2d(tmp_path):
+    lon_axis, lat_axis, lon2d, lat2d = _nemo_style_grid()
+    field = np.random.default_rng(1).normal(size=lon2d.shape)
+    field[:4, :6] = np.nan  # no data where the coordinates are fill values
+
+    def dataset(values):
+        return xr.Dataset(
+            {"sst": (("y", "x"), values)},
+            coords={
+                "nav_lon": (("y", "x"), lon2d, {"standard_name": "longitude"}),
+                "nav_lat": (("y", "x"), lat2d, {"standard_name": "latitude"}),
+            },
+        )
+
+    variable = _spec_for(tmp_path, dataset(field), dataset(field + 1.0), variables=(("sst", "sst"),)).variables[0]
+
+    assert variable.lon.ndim == 1 and variable.lat.ndim == 1
+    np.testing.assert_allclose(variable.lon, lon_axis)
+    np.testing.assert_allclose(variable.lat, lat_axis)
+
+
+def test_regular_grid_renders_as_image_and_as_a_rectilinear_mercator_mesh():
+    import holoviews as hv
+
+    from xdiff.plotting.renderers.server import _field_element, _load_viz
+
+    _load_viz()
+    lon_axis, lat_axis, _, _ = _nemo_style_grid()
+    variable = _variable_plot(np.ones((lat_axis.size, lon_axis.size)), lon=lon_axis, lat=lat_axis)
+
+    assert isinstance(_field_element(hv, variable, variable.difference), hv.Image)
+    mercator = _field_element(hv, variable, variable.difference, web_mercator=True)
+    assert isinstance(mercator, hv.QuadMesh)
+    # 1-D coordinates stay 1-D in metres: datashader's fast rectilinear path.
+    assert not mercator.interface.irregular(mercator, "x")
+    assert not mercator.interface.irregular(mercator, "y")

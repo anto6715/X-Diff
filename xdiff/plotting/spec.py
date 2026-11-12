@@ -8,6 +8,7 @@ renderers (static matplotlib, interactive server) consume the resulting
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -43,6 +44,95 @@ class VariablePlot:
     diff_extreme: float  # TRUE symmetric extreme: max(|nanmin|, |nanmax|) of difference
     units: str | None  # from ref_da.attrs.get("units")
     dims: tuple[str, ...]  # reduced dims, for axis labels / 1-D vs 2-D dispatch
+
+
+@dataclass(frozen=True)
+class RegularGrid:
+    """1-D axes recovered from 2-D lon/lat coordinates that describe a regular grid.
+
+    ``fill`` marks the coordinate points that are not grid positions but fill values (for
+    example NEMO's ``(-1, -1)`` over land-only processor blocks). The axes are valid for a
+    slice only if none of those points holds data, which :func:`regular_axes` checks.
+    """
+
+    lon: np.ndarray  # 1-D, one value per column (last dim)
+    lat: np.ndarray  # 1-D, one value per row (first dim)
+    fill: np.ndarray  # 2-D bool, same shape as the coordinates
+
+
+# A column (row) counts as constant when its longitudes (latitudes) spread by less than
+# this fraction of the smallest grid step: far below anything visible on a map.
+_REGULAR_GRID_TOLERANCE = 1e-2
+
+
+def find_regular_grid(lon, lat) -> RegularGrid | None:
+    """Recognise a regular lon/lat grid stored as 2-D coordinates, or return None.
+
+    Model output often stores longitude and latitude as 2-D arrays even when the grid is
+    regular: longitude depends only on the column and latitude only on the row. Treating
+    such a grid as curvilinear is much slower to render and lets fill values leak into
+    the mesh. Fill values are found as coordinate pairs that occur more than once (on a
+    real grid every position is unique) or are not finite. The remaining points must give
+    one longitude per column and one latitude per row, strictly monotonic. Only the usual
+    ``(row, column)`` = ``(lat, lon)`` layout is recognised; anything else returns None
+    and is drawn as a curvilinear mesh, as before.
+    """
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    if lon.ndim != 2 or lon.shape != lat.shape or min(lon.shape) < 2:
+        return None
+
+    finite = np.isfinite(lon) & np.isfinite(lat)
+    # Pack each (lon, lat) pair into one complex number so a 1-D unique finds repeats.
+    _, inverse, counts = np.unique(lon[finite] + 1j * lat[finite], return_inverse=True, return_counts=True)
+    repeated = np.zeros(lon.shape, dtype=bool)
+    repeated[finite] = counts[inverse.ravel()] > 1
+    fill = ~finite | repeated
+    if fill.all():
+        return None
+
+    lon_axis = _axis_values(lon, ~fill, constant_along=0)
+    lat_axis = _axis_values(lat, ~fill, constant_along=1)
+    if lon_axis is None or lat_axis is None:
+        return None
+    return RegularGrid(lon=lon_axis, lat=lat_axis, fill=fill)
+
+
+def _axis_values(coordinate: np.ndarray, trusted: np.ndarray, *, constant_along: int) -> np.ndarray | None:
+    """One value per line of ``coordinate``, if it is constant along ``constant_along``."""
+    masked = np.where(trusted, coordinate, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN lines are handled below
+        low = np.nanmin(masked, axis=constant_along)
+        high = np.nanmax(masked, axis=constant_along)
+    if not np.all(np.isfinite(low)):
+        return None  # a line with no trusted point: its position is unknown
+    values = (low + high) / 2.0
+    steps = np.diff(values)
+    if not (np.all(steps > 0) or np.all(steps < 0)):
+        return None
+    if np.max(high - low) > _REGULAR_GRID_TOLERANCE * np.min(np.abs(steps)):
+        return None
+    return values
+
+
+def regular_axes(lon, lat, has_data: np.ndarray, cache: dict | None = None, key=None):
+    """``(lon, lat)`` as 1-D axes when they describe a regular grid for this slice, else unchanged.
+
+    ``has_data`` marks the points holding data in either file. The coordinate analysis is
+    the same for every slice of a dataset, so it is stored in ``cache`` under ``key``.
+    """
+    if lon is None or lat is None or np.ndim(lon) != 2:
+        return lon, lat
+    if cache is not None and key in cache:
+        grid = cache[key]
+    else:
+        grid = find_regular_grid(lon, lat)
+        if cache is not None:
+            cache[key] = grid
+    if grid is None or grid.fill.shape != np.shape(has_data) or np.any(grid.fill & has_data):
+        return lon, lat
+    return grid.lon, grid.lat
 
 
 @dataclass(frozen=True)
@@ -119,6 +209,7 @@ def build_plot_spec(
     xr = load_xarray()
     plots: list[VariablePlot] = []
     skipped: list[SkippedVariable] = []
+    grid_cache: dict = {}
 
     with xr.open_dataset(reference_path) as reference_raw, xr.open_dataset(comparison_path) as comparison_raw:
         reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
@@ -139,6 +230,7 @@ def build_plot_spec(
                         latitude_name,
                         horizontal_dims,
                         last_time_step=last_time_step,
+                        grid_cache=grid_cache,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 — errors are data past this seam
@@ -196,6 +288,7 @@ def _build_variable_plot(
     last_time_step: bool,
     selection_override: dict[str, int] | None = None,
     decorate_label: bool = True,
+    grid_cache: dict | None = None,
 ) -> VariablePlot:
     if comparison_name not in comparison_ds:
         raise ValueError(f"{comparison_name!r} not present in comparison dataset")
@@ -240,14 +333,24 @@ def _build_variable_plot(
         label = f"{label} [{', '.join(f'{dim}={index}' for dim, index in collapsed.items())}]"
 
     units = reference_field.attrs.get("units")
+    has_data = np.isfinite(np.asarray(reference_values, dtype=float)) | np.isfinite(
+        np.asarray(comparison_values, dtype=float)
+    )
+    lon, lat = regular_axes(
+        _coordinate_values(reference_reduced, longitude_name),
+        _coordinate_values(reference_reduced, latitude_name),
+        has_data,
+        grid_cache,
+        key=(longitude_name, latitude_name, reference_reduced.shape),
+    )
 
     return VariablePlot(
         label=label,
         reference=reference_values,
         comparison=comparison_values,
         difference=difference,
-        lon=_coordinate_values(reference_reduced, longitude_name),
-        lat=_coordinate_values(reference_reduced, latitude_name),
+        lon=lon,
+        lat=lat,
         diff_limit=diff_limit,
         diff_extreme=diff_extreme,
         units=units,
@@ -400,6 +503,8 @@ def open_plot_source(
         comparison_raw.close()
         raise
 
+    grid_cache: dict = {}
+
     def slicer(index: int, selection: dict[str, int]) -> VariablePlot:
         reference_name, comparison_name = specs[index]
         return _build_variable_plot(
@@ -414,6 +519,7 @@ def open_plot_source(
             last_time_step=last_time_step,
             selection_override=selection,
             decorate_label=False,
+            grid_cache=grid_cache,
         )
 
     def closer() -> None:
