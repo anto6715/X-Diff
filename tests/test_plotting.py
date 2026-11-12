@@ -303,6 +303,20 @@ def test_render_to_files_writes_1d_lines(tmp_path):
     assert output.exists() and output.stat().st_size > 0
 
 
+@pytest.mark.parametrize("difference", [np.ones((5, 5)), np.arange(6.0)], ids=["map", "line"])
+def test_render_to_files_saves_at_300_dpi(tmp_path, difference):
+    from PIL import Image
+
+    spec = PlotSpec(tmp_path / "ref.nc", tmp_path / "cmp.nc", [_variable_plot(difference)], [])
+    output = tmp_path / "diff.png"
+
+    render_to_files(spec, output)
+
+    with Image.open(output) as image:
+        assert tuple(round(value) for value in image.info["dpi"]) == (300, 300)
+        assert image.width > 2500  # a 10-inch-wide figure, not 1000-1500 px
+
+
 def test_render_to_files_multi_variable_suffixes(tmp_path):
     spec = PlotSpec(
         tmp_path / "ref.nc",

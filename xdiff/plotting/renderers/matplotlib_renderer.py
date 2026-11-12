@@ -57,6 +57,11 @@ _LAND = "#d9d6cf"
 _COAST = "#4a4a4a"
 _MUTED_TEXT = "0.3"
 
+# Saved resolution of every static image (and of the map layer inside a PDF/SVG). On a
+# 1/24 degree basin grid such as MedFS this gives each model cell 2-3 pixels, so a
+# zoomed-in image still shows the cells sharply; higher values only sharpen lines and text.
+_DPI = 300
+
 
 def render_to_files(spec: PlotSpec, output: Path, *, scale: str = "auto") -> list[Path]:
     """Write one difference map (or line) per variable in ``spec``; return the written paths.
@@ -81,7 +86,7 @@ def render_to_files(spec: PlotSpec, output: Path, *, scale: str = "auto") -> lis
     for variable, target in zip(spec.variables, targets, strict=True):
         figure = _render_variable(plt, variable, scale=scale, files=files)
         target.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(target, bbox_inches="tight", pad_inches=0.12)
+        figure.savefig(target, dpi=_DPI, bbox_inches="tight", pad_inches=0.12)
         plt.close(figure)
         written.append(target)
     return written
@@ -157,7 +162,7 @@ def _render_diff_map(plt, variable: VariablePlot, *, scale: str = "auto", files:
     colour = _colour_scale(difference, nonzero, chosen, variable.units)
     extent = valid_extent(variable)
 
-    figure = plt.figure(figsize=_figure_size(extent), dpi=150, layout="constrained")
+    figure = plt.figure(figsize=_figure_size(extent), layout="constrained")
     axis = figure.add_subplot()
     axis.set_facecolor(_LAND)
     cmap = matplotlib.colormaps[DIFF_CMAP].with_extremes(bad=(0.0, 0.0, 0.0, 0.0))  # land shows through
