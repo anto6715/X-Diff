@@ -123,10 +123,16 @@ def build_application(source: PlotSource, *, default_index: int = 0):
     introspects the app callable's signature to decide how to invoke it and mishandles a
     partial, serving an empty document (the page loads but the plots are blank). Building
     per session also gives each browser its own widget (slider) state.
+
+    Once a page has loaded in the browser, the second warm-up (:func:`_start_views_warm_up`)
+    starts, if no earlier page started it.
     """
 
     def application():
-        return build_dashboard(source, default_index=default_index)
+        dashboard = build_dashboard(source, default_index=default_index)
+        _, panel = _load_viz()
+        panel.state.onload(_start_views_warm_up)
+        return dashboard
 
     return application
 
@@ -151,7 +157,7 @@ def serve(
 
 
 def _start_warm_up() -> threading.Thread:
-    """Compile datashader's kernels in the background while the browser opens.
+    """Compile datashader's kernels for the first map in the background while the browser opens.
 
     datashader compiles its kernels (numba) on first use: about 2.5 s on the first map and
     0.5 s on the first switch to "blocks". Running them once on tiny data, in a daemon thread
@@ -162,8 +168,48 @@ def _start_warm_up() -> threading.Thread:
     return thread
 
 
+# The second warm-up runs once per server process, started by the first page that loads.
+_views_warm_up_lock = threading.Lock()
+_views_warm_up_threads: list[threading.Thread] = []
+
+
+def _start_views_warm_up() -> threading.Thread:
+    """Compile the kernels for zoomed views and basemaps in the background, once per server.
+
+    Started after the first page has loaded, not with the server: compiling them alongside
+    the first page made it about 0.5 s slower. Without it, the first zoom, the first "blocks"
+    on a zoomed view and the first basemap each wait 0.4-0.5 s for a compilation.
+    """
+    with _views_warm_up_lock:
+        if not _views_warm_up_threads:
+            thread = threading.Thread(target=_warm_up_views, name="xdiff-datashader-warm-up-views", daemon=True)
+            thread.start()
+            _views_warm_up_threads.append(thread)
+        return _views_warm_up_threads[0]
+
+
+def _warm_up_field():
+    """A tiny 32-bit field with a masked block, shaped like the data datashader receives.
+
+    Coordinates are listed x first, as HoloViews passes them: datashader caches the compiled
+    mesh kernel by the input's schema, so another order would compile a kernel never reused.
+    """
+    import xarray
+
+    values = np.arange(30 * 50, dtype=np.float32).reshape(30, 50)
+    values[5:9, 5:9] = np.nan
+    return xarray.DataArray(values, dims=["y", "x"], coords={"x": np.arange(50.0), "y": np.arange(30.0)}, name="value")
+
+
+def _warm_up_canvas():
+    """A canvas that down-samples along x and up-samples along y, as a basin map in a wide window does."""
+    import datashader
+
+    return datashader.Canvas(plot_width=40, plot_height=45, x_range=(0, 49), y_range=(0, 29))
+
+
 def _warm_up_datashader() -> None:
-    """Run the datashader kernels the dashboard uses once, on tiny 32-bit data.
+    """Run the datashader kernels the first map uses once, on tiny 32-bit data.
 
     Calls datashader directly, not HoloViews, so it shares no plotting state with the page
     being served. A failure only means the first map pays the compilation, so it is logged
@@ -171,30 +217,41 @@ def _warm_up_datashader() -> None:
     """
     try:
         import datashader
-        import xarray
 
-        values = np.arange(30 * 50, dtype=np.float32).reshape(30, 50)
-        values[5:9, 5:9] = np.nan
-        # Coordinates listed x first, as HoloViews passes them: datashader caches the compiled
-        # mesh kernel by the input's schema, so another order would compile a kernel never reused.
-        field = xarray.DataArray(
-            values, dims=["y", "x"], coords={"x": np.arange(50.0), "y": np.arange(30.0)}, name="value"
-        )
-        # Down-sample along x and up-sample along y, as a basin map in a wide window does; then
-        # up-sample both ways, as a zoomed-in view does (a zoom is kept across redraws).
-        whole = datashader.Canvas(plot_width=40, plot_height=45, x_range=(0, 49), y_range=(0, 29))
-        zoomed = datashader.Canvas(plot_width=60, plot_height=45, x_range=(10, 20), y_range=(10, 17))
-        # HoloViews crops the field to the visible region first; numba compiles that slice (a
-        # non-contiguous array) separately from the whole field.
-        for array in (field, field[1:-1, 1:-1]):
-            for canvas in (whole, zoomed):
-                for method in ("linear", "nearest"):  # "smooth" and "blocks"
-                    canvas.raster(array, upsample_method=method, downsample_method="mean")
-                canvas.quadmesh(array, x="x", y="y", agg=datashader.mean("value"))  # meshes and basemaps
-        # A rasterized mesh comes out as 64-bit data before it is regridded.
-        whole.raster(field.astype(np.float64), upsample_method="linear", downsample_method="mean")
+        field, whole = _warm_up_field(), _warm_up_canvas()
+        for method in ("linear", "nearest"):  # "smooth" and "blocks"
+            whole.raster(field, upsample_method=method, downsample_method="mean")
+        whole.quadmesh(field, x="x", y="y", agg=datashader.mean("value"))  # meshes and basemaps
     except Exception:  # noqa: BLE001 - an optimisation only; the page works without it
         logging.getLogger("xdiff").debug("datashader warm-up failed", exc_info=True)
+
+
+def _warm_up_views() -> None:
+    """Run the datashader kernels that zoomed views and basemaps use once, on tiny 32-bit data.
+
+    A zoom is kept across redraws, so these run often: up-sampling both ways (a zoomed-in
+    view) and fields cropped to the visible region, which HoloViews passes as non-contiguous
+    arrays that numba compiles separately. Like :func:`_warm_up_datashader`, it calls
+    datashader directly, and a failure is logged and ignored.
+    """
+    try:
+        import datashader
+
+        field, whole = _warm_up_field(), _warm_up_canvas()
+        zoomed = datashader.Canvas(plot_width=60, plot_height=45, x_range=(10, 20), y_range=(10, 17))
+        cropped = field[1:-1, 1:-1]
+        for canvas, array in ((zoomed, field), (whole, cropped), (zoomed, cropped)):
+            for method in ("linear", "nearest"):  # "smooth" and "blocks"
+                canvas.raster(array, upsample_method=method, downsample_method="mean")
+        # Meshes and basemaps. Only the whole canvas: these coordinates are evenly spaced, so
+        # zooming in would compile an up-sampling kernel that real meshes never use.
+        whole.quadmesh(cropped, x="x", y="y", agg=datashader.mean("value"))
+        # A mesh is rasterized to 64-bit data on the canvas grid, then regridded onto that same
+        # grid, which runs only a shape check: compile that check without any resampling.
+        same_grid = datashader.Canvas(plot_width=50, plot_height=30, x_range=(-0.5, 49.5), y_range=(-0.5, 29.5))
+        same_grid.raster(field.astype(np.float64), upsample_method="linear", downsample_method="mean")
+    except Exception:  # noqa: BLE001 - an optimisation only; the page works without it
+        logging.getLogger("xdiff").debug("datashader views warm-up failed", exc_info=True)
 
 
 def build_dashboard(source: PlotSource, *, default_index: int = 0):
@@ -635,7 +692,8 @@ def _extent(variable: VariablePlot, basemap: bool = False) -> dict:
 
     Frames the plot tightly on the valid domain (e.g. the Mediterranean) instead of the raw
     coordinate bounding box, which fill values on masked cells would stretch. With a basemap
-    the bounds are converted to Web Mercator metres to match the reprojected field and tiles.
+    the bounds are converted to Web Mercator metres to match the reprojected field and tiles,
+    with latitudes clamped to Web Mercator's limit (a pole would be infinitely far north).
     """
     from xdiff.plotting.spec import valid_extent
 
@@ -646,7 +704,8 @@ def _extent(variable: VariablePlot, basemap: bool = False) -> dict:
     if basemap:
         from datashader.utils import lnglat_to_meters
 
-        eastings, northings = lnglat_to_meters([lon_min, lon_max], [lat_min, lat_max])
+        latitudes = np.clip([lat_min, lat_max], -_MERCATOR_MAX_LATITUDE, _MERCATOR_MAX_LATITUDE)
+        eastings, northings = lnglat_to_meters(np.array([lon_min, lon_max]), latitudes)
         return {"xlim": (float(eastings[0]), float(eastings[1])), "ylim": (float(northings[0]), float(northings[1]))}
     return {"xlim": (lon_min, lon_max), "ylim": (lat_min, lat_max)}
 
