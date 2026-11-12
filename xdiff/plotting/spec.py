@@ -461,14 +461,24 @@ def open_plot_source(
     filtering) but does NOT reduce or load data: each variable becomes a :class:`VariableHandle`
     carrying its selectable extra dims. ``PlotSource.slice`` then produces a 2-D VariablePlot for
     a chosen ``{dim: index}``. The caller must ``close()`` the returned source.
+
+    The netCDF chunk cache is enlarged while the source is open (see
+    :func:`_enlarged_chunk_cache`), so browsing the levels of a variable decompresses its
+    data once instead of on every slice.
     """
     xr = load_xarray()
-    reference_raw = xr.open_dataset(reference_path)
+    restore_chunk_cache = _enlarge_chunk_cache()
+    try:
+        reference_raw = xr.open_dataset(reference_path)
+    except Exception:
+        restore_chunk_cache()
+        raise
     try:
         comparison_raw = xr.open_dataset(comparison_path)
     except Exception:
         # Do not leave the reference file open when the comparison file cannot be opened.
         reference_raw.close()
+        restore_chunk_cache()
         raise
     try:
         reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
@@ -501,6 +511,7 @@ def open_plot_source(
     except Exception:
         reference_raw.close()
         comparison_raw.close()
+        restore_chunk_cache()
         raise
 
     grid_cache: dict = {}
@@ -525,8 +536,32 @@ def open_plot_source(
     def closer() -> None:
         reference_raw.close()
         comparison_raw.close()
+        restore_chunk_cache()
 
     return PlotSource(reference_path, comparison_path, handles, slicer, skipped, closer)
+
+
+# Chunk cache for each variable of a file opened by the live server. HDF5 fills it only
+# with chunks actually read, so this is a ceiling, not an allocation.
+_LIVE_CHUNK_CACHE_BYTES = 1024**3
+
+
+def _enlarge_chunk_cache():
+    """Raise the netCDF/HDF5 chunk cache for files opened from now on; return a restore function.
+
+    Model output often stores a whole 3-D variable as one compressed chunk (MedFS: all 141
+    levels in one chunk of about 280 MB). With the default cache (a few MB) every slice
+    decompresses that chunk again: about 1.2 s per depth change for two files. With a cache
+    that holds it, the first slice costs the same and later ones take milliseconds. Memory
+    grows with the decompressed data of each variable viewed, per file.
+    """
+    try:
+        import netCDF4
+    except ImportError:  # pragma: no cover - netCDF4 is a base dependency
+        return lambda: None
+    previous = netCDF4.get_chunk_cache()
+    netCDF4.set_chunk_cache(_LIVE_CHUNK_CACHE_BYTES, 1009, 0.75)
+    return lambda: netCDF4.set_chunk_cache(*previous)
 
 
 def _extra_dim_controls(dataset, field, horizontal_dims, *, last_time_step) -> tuple[DimControl, ...]:
