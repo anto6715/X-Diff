@@ -126,12 +126,15 @@ Inputs on *different* grids or resolutions need regridding first — that is out
 
 `xdiff plot` turns the comparison from *numbers* into a *picture* of **where** two files differ. The difference is the focus — drawn on a diverging colormap centered at 0, so red/blue shows the sign of the disagreement. It reuses the comparison options — `-v` (including `REF=CMP`), `--bbox`, and `--last-time-step` — so you plot exactly what you would compare. Requires the [`plot` extra](#install-globally-with-uv-tool).
 
-Both modes draw a plain lon/lat map (no projection or coastlines): land is the data's own NaN mask, painted grey. There are two modes, selected by the presence of `-o`:
+Both modes draw a plain lon/lat map (no map projection): land is wherever neither file has data, so it always matches the model grid and needs no coastline download. There are two modes, selected by the presence of `-o`:
 
-**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. The map is smoothly shaded and drawn with a latitude-corrected aspect so the domain is not distorted. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …):
+**Static image** — render the **difference** map (one full-size figure per variable) to a file and exit, for reports and scripting. Each map shows the grid cells as they are, land in grey with a coastline traced from the sea mask, degree axes with a latitude-corrected aspect, a horizontal colour bar, the variable's long name with the date and depth shown, and a footer with min, max, RMS and the share of sea points that differ. The extension picks the format (`.png`, `.pdf`, `.svg`); with multiple variables the label is inserted into the filename (`diff.png` → `diff_thetao.png`, …).
+
+The colour scale is chosen per variable. When differences are spread over a narrow range, a linear scale is used, with its limit taken from the points that actually differ. When they span many orders of magnitude (typical when only a few points differ, by anything from 1e-6 to several units), a linear scale would draw almost all of them as zero, so a **signed log scale** is used instead. Force either with `--scale linear` or `--scale log`:
 
 ```shell
 uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png
+uv run xdiff plot reference.nc comparison.nc -v thetao -o diff.png --scale log
 ```
 
 **Live interactive server** — omit `-o` to start a local server, open the browser, and block until Ctrl-C. A sidebar drives everything: pick any **variable** in the file, step through **time/depth** levels, adjust the **colour limit** and **colormap** live (zoom preserved), toggle **smooth ↔ blocks** rendering, and optionally overlay a web-map **basemap** (Carto, OSM, Esri, …; needs internet). The difference is shown large and **datashaded**, so it **re-aggregates server-side as you zoom** (scroll to zoom) and scales to large grids; the min/max readout shows the true magnitude and hovering reads off values. The reference and comparison maps sit in a collapsed card at the bottom. Nothing is written to disk; when `xdiff` exits, the server stops.

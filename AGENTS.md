@@ -72,6 +72,7 @@ Exit code 0 = all comparisons passed; exit code 1 = one or more failures, nothin
 | Option | Description |
 |---|---|
 | `-o / --output FILE` | Write a static image; the extension picks the format (`.png`/`.pdf`/`.svg`). Omit for the live interactive server. |
+| `--scale auto\|linear\|log` | Colour scale of the static image (default `auto`): linear, or a signed log scale for differences spanning many orders of magnitude. Ignored without `-o`. |
 | `--port N` | Port for the live server (default `5006`; fails fast if busy, never auto-incremented). Ignored with `-o`. |
 | `--no-open` | Do not auto-open a browser; print the URL (for headless / `ssh -L` sessions). |
 

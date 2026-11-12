@@ -1,6 +1,7 @@
 import importlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
@@ -368,3 +369,25 @@ def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
     assert result.exit_code == 1
     assert "NO COMPARISONS" in result.output
     assert "PASSED" not in result.output
+
+
+def test_plot_passes_the_scale_to_the_static_renderer(monkeypatch, tmp_path):
+    renderer = importlib.import_module("xdiff.plotting.renderers.matplotlib_renderer")
+    spec_module = importlib.import_module("xdiff.plotting.spec")
+    captured = {}
+
+    monkeypatch.setattr(spec_module, "build_plot_spec", lambda *args, **kwargs: SimpleNamespace(skipped=[]))
+    monkeypatch.setattr(
+        renderer, "render_to_files", lambda spec, output, *, scale: captured.update(scale=scale) or [output]
+    )
+    reference = tmp_path / "reference.nc"
+    comparison = tmp_path / "comparison.nc"
+    reference.touch()
+    comparison.touch()
+
+    result = CliRunner().invoke(
+        cli, ["plot", str(reference), str(comparison), "-o", str(tmp_path / "diff.png"), "--scale", "log"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured == {"scale": "log"}
