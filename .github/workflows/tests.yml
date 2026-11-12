@@ -5,9 +5,6 @@ on:
   push:
     branches:
       - master
-  # Started by release.yml on the release commit, which a pull_request event never
-  # covers because that commit is pushed with the workflow token.
-  workflow_dispatch:
 
 jobs:
   lint:

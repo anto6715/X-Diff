@@ -250,8 +250,8 @@ In normal feature work, contributors create entries with `towncrier create` and 
 There is no `develop` branch: feature and fix branches are cut from `master` and merged back into it. To release what is on `master`:
 
 1. In the repository's **Actions** tab, run the **Release** workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) from `master` with the version, written as `X.Y.Z`.
-2. The workflow creates `release/X.Y.Z` with one commit (the version in `pyproject.toml`, the regenerated `uv.lock`, and `CHANGES.md` built from `changes.d/`), starts the test suite on that commit, and opens a pull request into `master`.
-3. Merge the pull request once its checks are green.
+2. The workflow creates `release/X.Y.Z` with one commit (the version in `pyproject.toml`, the regenerated `uv.lock`, and `CHANGES.md` built from `changes.d/`), and opens a pull request into `master`.
+3. GitHub holds the tests of a pull request opened by the workflow until a maintainer approves them: on the pull request, click **Approve and run workflows**. They run the full Python matrix on the release commit. Merge the pull request once its checks are green.
 4. Publish a GitHub Release tagged `X.Y.Z` (no `v` prefix). That uploads the package to PyPI.
 
 ## Author
