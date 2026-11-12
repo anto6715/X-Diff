@@ -44,6 +44,9 @@ class VariablePlot:
     diff_extreme: float  # TRUE symmetric extreme: max(|nanmin|, |nanmax|) of difference
     units: str | None  # from ref_da.attrs.get("units")
     dims: tuple[str, ...]  # reduced dims, for axis labels / 1-D vs 2-D dispatch
+    long_name: str | None = None  # from long_name / standard_name, for titles
+    # The value each collapsed dim was reduced to, readable: ("2020-01-01 12:00", "deptht 1.02 m")
+    context: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -333,6 +336,8 @@ def _build_variable_plot(
         label = f"{label} [{', '.join(f'{dim}={index}' for dim, index in collapsed.items())}]"
 
     units = reference_field.attrs.get("units")
+    long_name = reference_field.attrs.get("long_name") or reference_field.attrs.get("standard_name")
+    context = tuple(_describe_selection(reference_field, dim, index) for dim, index in collapsed.items())
     has_data = np.isfinite(np.asarray(reference_values, dtype=float)) | np.isfinite(
         np.asarray(comparison_values, dtype=float)
     )
@@ -355,7 +360,29 @@ def _build_variable_plot(
         diff_extreme=diff_extreme,
         units=units,
         dims=tuple(str(dim) for dim in reference_reduced.dims),
+        long_name=str(long_name).replace("_", " ") if long_name else None,
+        context=context,
     )
+
+
+def _describe_selection(field: xr.DataArray, dim, index: int) -> str:
+    """A readable description of the value ``dim`` was reduced to, for titles.
+
+    Times read as a date and time (``2020-01-01 12:00``); other coordinates as name, value and
+    units (``deptht 1.02 m``); a dimension without a coordinate as its index.
+    """
+    if dim not in field.coords or field.coords[dim].ndim != 1:
+        return f"{dim} index {index}"
+    coordinate = field.coords[dim]
+    value = coordinate.values[index]
+    if np.issubdtype(np.asarray(value).dtype, np.datetime64):
+        return str(np.datetime_as_string(value, unit="m")).replace("T", " ")
+    try:
+        number = f"{float(value):.4g}"
+    except (TypeError, ValueError):  # e.g. cftime dates from non-standard calendars
+        return str(value)
+    units = coordinate.attrs.get("units")
+    return f"{dim} {number} {units}" if units else f"{dim} {number}"
 
 
 def valid_extent(variable: VariablePlot) -> tuple[float, float, float, float] | None:

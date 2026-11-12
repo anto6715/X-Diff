@@ -9,8 +9,10 @@ import xarray as xr
 from xdiff.model import BoundingBox
 from xdiff.plotting.renderers.matplotlib_renderer import (
     SUPPORTED_EXTENSIONS,
+    choose_scale,
     output_paths,
     render_to_files,
+    scaled_label,
     validate_output_extension,
 )
 from xdiff.plotting.spec import (
@@ -895,3 +897,92 @@ def test_datashader_warm_up_runs_and_serve_starts_it_first(monkeypatch):
     server.serve(PlotSource.static(Path("ref.nc"), Path("cmp.nc"), []), port=_free_port(), open_browser=False)
 
     assert events == ["warm-up", "serve"]
+
+
+# --------------------------------------------------------------------------- static map style
+def test_choose_scale_picks_log_when_most_differences_are_far_below_the_limit():
+    sparse = np.zeros((40, 40))
+    sparse[0, :20] = np.logspace(-7, 0, 20)  # a few points, differing by 1e-7 .. 1
+    dense = np.random.default_rng(2).normal(scale=1e-6, size=(40, 40))
+
+    assert choose_scale(sparse) == "log"
+    assert choose_scale(dense) == "linear"
+    assert choose_scale(np.zeros((4, 4))) == "linear"  # identical fields
+
+
+def test_scaled_label_moves_the_power_of_ten_into_the_label():
+    assert scaled_label(7.8e-6, "m") == (1e-6, "difference [×10$^{-6}$ m]")
+    assert scaled_label(0.5, "degC") == (1.0, "difference [degC]")
+    assert scaled_label(2e5, None) == (1e5, "difference [×10$^{5}$]")
+
+
+def _map_with_land(**overrides):
+    lon = np.linspace(-6.0, 4.0, 20)
+    lat = np.linspace(35.0, 40.0, 12)
+    difference = np.random.default_rng(3).normal(size=(12, 20))
+    reference = np.zeros((12, 20))
+    for array in (difference, reference):
+        array[:5, :8] = np.nan  # land: no data in either file
+    defaults = dict(reference=reference, comparison=reference - difference, lon=lon, lat=lat)
+    defaults.update(overrides)
+    return _variable_plot(difference, **defaults)
+
+
+def test_static_map_draws_land_and_a_coastline_from_the_sea_mask():
+    import matplotlib.colors as mcolors
+    from matplotlib.contour import ContourSet
+
+    from xdiff.plotting.renderers import matplotlib_renderer
+
+    plt = matplotlib_renderer._load_pyplot()
+    figure = matplotlib_renderer._render_diff_map(plt, _map_with_land())
+    axis = figure.axes[0]
+
+    assert mcolors.same_color(axis.get_facecolor(), matplotlib_renderer._LAND)  # undrawn cells show land
+    assert any(isinstance(artist, ContourSet) for artist in axis.collections)  # traced coastline
+    assert axis.xaxis.get_major_formatter()(10.0, 0) == "10°E"
+    plt.close(figure)
+
+
+def test_static_map_heading_and_log_colorbar():
+    from xdiff.plotting.renderers import matplotlib_renderer
+
+    plt = matplotlib_renderer._load_pyplot()
+    variable = _map_with_land(
+        long_name="sea water potential temperature", context=("2020-01-01 12:00", "deptht 1.02 m")
+    )
+    figure = matplotlib_renderer._render_diff_map(plt, variable, scale="log")
+    axis, colorbar_axis = figure.axes[0], figure.axes[1]
+
+    texts = [text.get_text() for text in axis.texts]
+    assert "sea water potential temperature (sst)" in texts
+    assert axis.get_title(loc="left") == "reference minus comparison   ·   2020-01-01 12:00   ·   deptht 1.02 m"
+    assert "signed log scale" in colorbar_axis.get_xlabel()
+    assert 0.0 in list(colorbar_axis.get_xticks())
+    plt.close(figure)
+
+
+def test_render_to_files_rejects_an_unknown_scale(tmp_path):
+    spec = PlotSpec(tmp_path / "ref.nc", tmp_path / "cmp.nc", [_map_with_land()], [])
+    with pytest.raises(ValueError, match="unknown scale"):
+        render_to_files(spec, tmp_path / "diff.png", scale="cubic")
+
+
+def test_build_plot_spec_describes_the_slice_for_titles(tmp_path):
+    field = np.ones((2, 3, 4, 5))
+
+    def dataset(values):
+        return xr.Dataset(
+            {"thetao": (("time", "depth", "lat", "lon"), values, {"long_name": "sea_water_potential_temperature"})},
+            coords={
+                "time": np.array(["2020-01-01T12:00", "2020-01-02T12:00"], dtype="datetime64[ns]"),
+                "depth": ("depth", [1.5, 10.0, 50.0], {"units": "m"}),
+                "lon": ("lon", np.arange(5.0), {"units": "degrees_east"}),
+                "lat": ("lat", np.arange(4.0), {"units": "degrees_north"}),
+            },
+        )
+
+    variable = _spec_for(tmp_path, dataset(field), dataset(field), variables=(("thetao", "thetao"),)).variables[0]
+
+    assert variable.long_name == "sea water potential temperature"
+    assert variable.context == ("2020-01-01 12:00", "depth 1.5 m")

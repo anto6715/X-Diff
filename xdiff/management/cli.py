@@ -290,6 +290,16 @@ def compare_files(
     default=False,
     help="Do not auto-open the browser; just print the URL (server mode, e.g. for headless/SSH).",
 )
+@click.option(
+    "--scale",
+    type=click.Choice(["auto", "linear", "log"]),
+    default="auto",
+    show_default=True,
+    help=(
+        "Colour scale of the static image (-o). 'log' is a signed log scale, for differences that "
+        "span many orders of magnitude; 'auto' picks it when a linear scale would hide most of them."
+    ),
+)
 def plot(
     reference_path: Path,
     comparison_path: Path,
@@ -299,6 +309,7 @@ def plot(
     output: Path | None,
     port: int | None,
     no_open: bool,
+    scale: str,
 ) -> None:
     """Plot where two netCDF files differ, focusing on the difference field.
 
@@ -314,7 +325,7 @@ def plot(
     address = "localhost"
 
     if static:
-        _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox)
+        _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox, scale)
         return
 
     from xdiff.plotting.renderers.server import (
@@ -358,7 +369,7 @@ def plot(
         source.close()
 
 
-def _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox) -> None:
+def _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox, scale="auto") -> None:
     """Render the difference to a static image (one per requested variable) and exit."""
     from xdiff.core.main import normalize_bbox, normalize_variables
     from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
@@ -376,7 +387,7 @@ def _plot_static(reference_path, comparison_path, variables, output, last_time_s
         )
         for skipped in spec.skipped:
             click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
-        written = render_to_files(spec, output)
+        written = render_to_files(spec, output, scale=scale)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     for path in written:
