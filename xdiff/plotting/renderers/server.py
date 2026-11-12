@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import socket
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -59,6 +59,23 @@ _BASEMAPS = {
     "Esri Terrain": "EsriTerrain",
     "OpenTopoMap": "OpenTopoMap",
 }
+
+
+# The coordinates a difference map is drawn in. A view is reused only in the same frame, or
+# converted between lon/lat degrees and Web Mercator metres when a basemap is toggled.
+_LONLAT = "lonlat"  # lon/lat degrees
+_MERCATOR = "mercator"  # Web Mercator metres (basemap on)
+_INDEX = "index"  # a field without coordinates, drawn on the unit square
+# Web Mercator is undefined at the poles; latitudes are clamped to its usual limit.
+_MERCATOR_MAX_LATITUDE = 85.0511
+
+
+class _View(NamedTuple):
+    """The region a difference map shows: x and y ranges in the coordinates of ``frame``."""
+
+    frame: str
+    x_range: tuple[float, float]
+    y_range: tuple[float, float]
 
 
 _MISSING_BACKEND_HINT = (
@@ -158,14 +175,24 @@ def _warm_up_datashader() -> None:
 
         values = np.arange(30 * 50, dtype=np.float32).reshape(30, 50)
         values[5:9, 5:9] = np.nan
-        array = xarray.DataArray(
-            values, dims=["y", "x"], coords={"y": np.arange(30.0), "x": np.arange(50.0)}, name="value"
+        # Coordinates listed x first, as HoloViews passes them: datashader caches the compiled
+        # mesh kernel by the input's schema, so another order would compile a kernel never reused.
+        field = xarray.DataArray(
+            values, dims=["y", "x"], coords={"x": np.arange(50.0), "y": np.arange(30.0)}, name="value"
         )
-        # Down-sample along x and up-sample along y, as a basin map in a wide window does.
-        canvas = datashader.Canvas(plot_width=40, plot_height=45, x_range=(0, 49), y_range=(0, 29))
-        for method in ("linear", "nearest"):  # "smooth" and "blocks"
-            canvas.raster(array, upsample_method=method, downsample_method="mean")
-        canvas.quadmesh(array, x="x", y="y", agg=datashader.mean("value"))  # meshes and basemaps
+        # Down-sample along x and up-sample along y, as a basin map in a wide window does; then
+        # up-sample both ways, as a zoomed-in view does (a zoom is kept across redraws).
+        whole = datashader.Canvas(plot_width=40, plot_height=45, x_range=(0, 49), y_range=(0, 29))
+        zoomed = datashader.Canvas(plot_width=60, plot_height=45, x_range=(10, 20), y_range=(10, 17))
+        # HoloViews crops the field to the visible region first; numba compiles that slice (a
+        # non-contiguous array) separately from the whole field.
+        for array in (field, field[1:-1, 1:-1]):
+            for canvas in (whole, zoomed):
+                for method in ("linear", "nearest"):  # "smooth" and "blocks"
+                    canvas.raster(array, upsample_method=method, downsample_method="mean")
+                canvas.quadmesh(array, x="x", y="y", agg=datashader.mean("value"))  # meshes and basemaps
+        # A rasterized mesh comes out as 64-bit data before it is regridded.
+        whole.raster(field.astype(np.float64), upsample_method="linear", downsample_method="mean")
     except Exception:  # noqa: BLE001 - an optimisation only; the page works without it
         logging.getLogger("xdiff").debug("datashader warm-up failed", exc_info=True)
 
@@ -180,6 +207,10 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     from ``source`` so time/depth can be changed live. Switching variable re-targets the
     controls; colour limit and colormap re-style the hero in place (zoom kept), the toggle
     re-runs the interpolation, and a time/depth change re-slices server-side.
+
+    Every other change rebuilds the hero, which reopens on the region last shown: a time/depth
+    change, the toggle, and a switch to a variable in the same coordinates keep the view, and
+    toggling a basemap converts it between degrees and Web Mercator metres.
     """
     holoviews, panel = _load_viz()
     handles = source.variables
@@ -209,8 +240,8 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     main_holder = panel.Column(sizing_mode="stretch_width")  # main content, replaced on redraw
     # "slice" memoises the last slice, so a render-mode or basemap change, and the second
     # look on a variable switch, reuse it; "card_open" keeps the reference card as the user
-    # left it across redraws.
-    state: dict = {"names": [], "selects": [], "slice": None, "card_open": False}
+    # left it across redraws; "view" is the _View the hero last showed, so a redraw reopens there.
+    state: dict = {"names": [], "selects": [], "slice": None, "card_open": False, "view": None}
 
     def current_slice(index: int, selection: dict):
         key = (index, tuple(sorted(selection.items())))
@@ -223,10 +254,14 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     def remember_card(is_open: bool) -> None:
         state["card_open"] = is_open
 
+    def remember_view(view: _View) -> None:
+        state["view"] = view
+
     def redraw(*_events) -> None:
         # Re-slice for the current variable + dim selection and replace the main content. A
         # dim change / variable switch / render-mode / basemap change lands here (rebuilds the
-        # plot); colour limit and colormap are bound in place and never trigger this.
+        # plot, reopening on state["view"]); colour limit and colormap are bound in place and
+        # never trigger this.
         index = var_select.value
         selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
         try:
@@ -248,6 +283,8 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
                 climit_widget=climit,
                 card_open=state["card_open"],
                 on_card_toggle=remember_card,
+                view=state["view"],
+                on_view=remember_view,
             )
         ]
 
@@ -329,6 +366,8 @@ def _rendered_variable(
     climit_widget,
     card_open: bool = False,
     on_card_toggle=None,
+    view: _View | None = None,
+    on_view=None,
 ):
     """Render one already-sliced variable: min/max readout, hero difference, reference card.
 
@@ -336,6 +375,7 @@ def _rendered_variable(
     The reference/comparison maps are built only while their card is open: building them
     for a collapsed card cost two extra rasterizations and two extra images per redraw.
     ``card_open`` sets the initial state and ``on_card_toggle(is_open)`` reports changes.
+    ``view`` and ``on_view`` apply to a 2-D hero only (see :func:`_hero_map`).
     """
     metadata = _metadata(panel, variable)
     if len(variable.dims) != 2:
@@ -354,6 +394,8 @@ def _rendered_variable(
             basemap=basemap,
             cmap_widget=cmap_widget,
             climit_widget=climit_widget,
+            view=view,
+            on_view=on_view,
         )
 
         def reference():
@@ -394,9 +436,29 @@ def _metadata(panel, variable: VariablePlot):
     return panel.pane.Markdown(f"## {variable.label}\nunits **{units}**  ·  min **{low:.3g}**  ·  max **{high:.3g}**")
 
 
-def _hero_map(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap_widget, climit_widget):
-    """The hero difference map: datashaded, colormap + colour limit bound in place, zoom kept."""
+def _hero_map(
+    holoviews,
+    panel,
+    variable: VariablePlot,
+    *,
+    method,
+    basemap,
+    cmap_widget,
+    climit_widget,
+    view: _View | None = None,
+    on_view=None,
+):
+    """The hero difference map: datashaded, colormap + colour limit bound in place, zoom kept.
+
+    The map opens on ``view`` when it can be shown in this map's coordinates (see
+    :func:`_ranges_in`), otherwise on the data's extent; the Reset tool always returns to the
+    data's extent. ``on_view(view)`` receives the region the map opens on, then every pan or
+    zoom the browser reports, so the next rebuild can reopen where the user left off.
+    """
     element = _field_element(holoviews, variable, variable.difference, web_mercator=basemap is not None)
+    frame = _frame(holoviews, element)
+    home = _home_ranges(element, variable, basemap)
+    ranges = _ranges_in(view, frame) or home
     base = _datashaded(holoviews, element, method=method)
     styled = base.apply.opts(
         cmap=panel.bind(lambda name: name, cmap_widget),
@@ -406,7 +468,19 @@ def _hero_map(holoviews, panel, variable: VariablePlot, *, method, basemap, cmap
         tools=["hover"],
         title="difference",
     )
-    return panel.pane.HoloViews(_with_basemap(holoviews, styled, variable, _DIFF_HEIGHT, basemap))
+    plot = _with_basemap(holoviews, styled, variable, _DIFF_HEIGHT, basemap, ranges=ranges, home=home)
+    if on_view is not None:
+        if ranges is not None:
+            on_view(_View(frame, *ranges))
+
+        def record(x_range=None, y_range=None) -> None:
+            if x_range is not None and y_range is not None:
+                on_view(_View(frame, (float(x_range[0]), float(x_range[1])), (float(y_range[0]), float(y_range[1]))))
+
+        # The browser reports each pan/zoom (when it ends) to this stream. Its source is the
+        # data layer, not ``plot``: HoloViews never connects a stream on a basemap overlay.
+        holoviews.streams.RangeXY(source=styled, subscribers=[record])
+    return panel.pane.HoloViews(plot)
 
 
 def _reference_maps(holoviews, variable: VariablePlot, *, basemap):
@@ -433,22 +507,23 @@ def _clipping(basemap) -> dict:
     return {"NaN": (0.0, 0.0, 0.0, 0.0)} if basemap is not None else {"NaN": LAND_COLOR}
 
 
-def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap):
+def _with_basemap(holoviews, styled, variable: VariablePlot, height: int, basemap, *, ranges=None, home=None):
     """Size the map, cropping to the data; overlay it on the ``basemap`` tiles when set.
 
     ``basemap`` is a holoviews tile-source class name (or None). Tiles are Web Mercator, so
     the field's coordinates were already reprojected in ``_field_element`` and the extent is
-    converted to metres here.
+    converted to metres here. ``ranges`` (``(x_range, y_range)``) opens the map on that region
+    instead, and ``home`` (same form) is where the Reset tool returns.
     """
-    sizing = {
-        "responsive": True,
-        "height": height,
-        "active_tools": ["wheel_zoom"],
-        **_extent(variable, basemap is not None),
-    }
+    limits = _extent(variable, basemap is not None) if ranges is None else {"xlim": ranges[0], "ylim": ranges[1]}
+    sizing = {"responsive": True, "height": height, "active_tools": ["wheel_zoom"], **limits}
+    if home is not None:
+        sizing["hooks"] = [_reset_to(home)]
     if basemap is None:
         return styled.opts(**sizing)
-    return (_basemap_tiles(holoviews, basemap) * styled).opts(holoviews.opts.Overlay(**sizing))
+    # The data layer gets the limits too: HoloViews takes the region to rasterize first, and the
+    # first view it reports, from that layer's own limits, not the overlay's.
+    return (_basemap_tiles(holoviews, basemap) * styled.opts(**limits)).opts(holoviews.opts.Overlay(**sizing))
 
 
 def _basemap_tiles(holoviews, name: str):
@@ -574,6 +649,72 @@ def _extent(variable: VariablePlot, basemap: bool = False) -> dict:
         eastings, northings = lnglat_to_meters([lon_min, lon_max], [lat_min, lat_max])
         return {"xlim": (float(eastings[0]), float(eastings[1])), "ylim": (float(northings[0]), float(northings[1]))}
     return {"xlim": (lon_min, lon_max), "ylim": (lat_min, lat_max)}
+
+
+def _frame(holoviews, element) -> str:
+    """The coordinates ``element`` (from :func:`_field_element`) is drawn in."""
+    if [dimension.name for dimension in element.kdims] == ["lon", "lat"]:
+        return _LONLAT
+    # Only the Web Mercator path makes a QuadMesh on x/y; a field without coordinates is an Image.
+    return _MERCATOR if isinstance(element, holoviews.QuadMesh) else _INDEX
+
+
+def _home_ranges(element, variable: VariablePlot, basemap):
+    """``(x_range, y_range)`` of the data's extent (see :func:`_extent`), or None if unknown.
+
+    Falls back to the element's own bounds, e.g. the unit square of a field without coordinates.
+    """
+    extent = _extent(variable, basemap is not None)
+    if extent:
+        return extent["xlim"], extent["ylim"]
+    x_range = tuple(float(value) for value in element.range(0))
+    y_range = tuple(float(value) for value in element.range(1))
+    if not np.all(np.isfinite(x_range + y_range)):
+        return None
+    return x_range, y_range
+
+
+def _ranges_in(view: _View | None, frame: str):
+    """``view`` as ``(x_range, y_range)`` in ``frame``, or None if it cannot be shown there.
+
+    The same frame keeps the view as is; lon/lat degrees and Web Mercator metres convert into
+    each other (a basemap toggled while zoomed); any other pair has no common coordinates.
+    """
+    if view is None:
+        return None
+    if view.frame == frame:
+        return view.x_range, view.y_range
+    if (view.frame, frame) == (_LONLAT, _MERCATOR):
+        from datashader.utils import lnglat_to_meters
+
+        latitudes = np.clip(view.y_range, -_MERCATOR_MAX_LATITUDE, _MERCATOR_MAX_LATITUDE)
+        xs, ys = lnglat_to_meters(np.asarray(view.x_range, dtype=float), latitudes)
+    elif (view.frame, frame) == (_MERCATOR, _LONLAT):
+        from holoviews.util.transform import easting_northing_to_lon_lat
+
+        xs, ys = easting_northing_to_lon_lat(
+            np.asarray(view.x_range, dtype=float), np.asarray(view.y_range, dtype=float)
+        )
+    else:
+        return None
+    return (float(xs[0]), float(xs[1])), (float(ys[0]), float(ys[1]))
+
+
+def _reset_to(home):
+    """A plot hook that makes the Reset tool return to ``home`` (``(x_range, y_range)``).
+
+    Without it, Reset returns to the region the plot was built with, which after a rebuild
+    is the view carried over from the previous plot rather than the whole map.
+    """
+    (x_start, x_end), (y_start, y_end) = home
+
+    def hook(plot, _element) -> None:
+        for name, start, end in (("x_range", x_start, x_end), ("y_range", y_start, y_end)):
+            axis_range = plot.handles.get(name)
+            if axis_range is not None and hasattr(axis_range, "reset_start"):
+                axis_range.update(reset_start=start, reset_end=end)
+
+    return hook
 
 
 def _datashaded(holoviews, element, *, method: str):
