@@ -6,6 +6,40 @@ This repository uses `towncrier` to collect unreleased changes under `changes.d/
 
 <!-- towncrier release notes start -->
 
+## __[xdiff-0.4.2](https://github.com/anto6715/X-Diff/tree/0.4.2) - 2026-11-12__
+
+### 🔧 Bugfixes
+
+[#58](https://github.com/anto6715/X-Diff/pull/58) - A run that ends with failures no longer prints a spurious `Error: 1` after the summary; the exit code is still 1.
+
+[#59](https://github.com/anto6715/X-Diff/pull/59) - `--last-time-step` now works without `-v`: the time coordinate is left out of the default variable selection instead of failing the run. Requesting it explicitly (`-v time`) still reports that it cannot be compared on a single step.
+
+[#60](https://github.com/anto6715/X-Diff/pull/60) - A run that compared nothing (for example two empty directories) now shows `NO COMPARISONS` in the summary instead of `PASSED`. It already exited with code 1; the summary and the exit code now agree.
+
+[#64](https://github.com/anto6715/X-Diff/pull/64) - Starting the live `xdiff plot` server without the `plot` extra now prints the install hint instead of a traceback.
+
+[#70](https://github.com/anto6715/X-Diff/pull/70) - The `plot` extra now requires panel 1.9 or newer, holoviews 1.19 or newer and bokeh 3.8 or newer. The older versions it used to allow could not start the live `xdiff plot` server.
+
+[#72](https://github.com/anto6715/X-Diff/pull/72) - `numpy` is now a declared dependency (`numpy>=1.23.2,<3.0.0`). xdiff imports it directly but used to receive it only through xarray and pandas, so no minimum version was stated or tested.
+
+### Documentation
+
+[#61](https://github.com/anto6715/X-Diff/pull/61) - The README now explains how to read the result: a pass means the two sides are identical, what is and is not compared by default, and the exit codes (`0`, `1`, `2`). It no longer refers to the retired `develop` branch. The custom-comparator guide states the real pass rule, `AGENTS.md` no longer lists a model that does not exist, and the contributor docs agree that changelog fragments are named after the pull request number.
+
+### Miscellaneous
+
+[#61](https://github.com/anto6715/X-Diff/pull/61) - Remove the stale `requirements.txt`. It was generated from an old lock file, listed packages that are no longer base dependencies, and nothing used it; `uv.lock` and `pyproject.toml` are the source of truth.
+
+[#62](https://github.com/anto6715/X-Diff/pull/62) - Remove unused public names. The CLI behaves the same; code that imports `xdiff` as a library is affected only if it used one of these: the settings `xdiff.conf.DEFAULT_MAXDEPTH`, `DTYPE_NOT_CHECKED`, `TIME_DTYPE` and `LOGGING_CONFIG`; the module `xdiff.utils.module_loading`; `xdiff.utils.regex.find_file_matches`; `Comparison.set_exception`; the constants `xdiff.model.compare_result.PASSED` / `FAILED`; and the `get_version` keyword of `xdiff.core.execute`. `configure_logging` now takes only the logging settings, which must be a `logging.config.dictConfig` dictionary, and xdiff's default logging setup can no longer be switched off or replaced through `LOGGING_CONFIG`. Callers of the legacy `xdiff.compare.compare` that relied on `find_file_matches` now build its `{reference_path: [comparison_paths]}` argument themselves.
+
+[#63](https://github.com/anto6715/X-Diff/pull/63) - Internal cleanup: helpers that were duplicated between the report formatter and the progress reporter, in the plotting code, and in the CLI option declarations now exist once. Output and `--help` text are unchanged for the built-in netCDF comparison. One rule is now applied consistently in the report and the live progress line: a failed result shows its failure reason (`description`) even if it also carries a `note`. `xdiff plot` no longer leaves the reference file open when the comparison file cannot be opened.
+
+[#64](https://github.com/anto6715/X-Diff/pull/64) - CI now also tests a base install with no extras, installed as the built wheel on Python 3.11 and 3.14: the comparison commands must work, and features that need the `dask` or `plot` extra must fail with an install hint.
+
+[#65](https://github.com/anto6715/X-Diff/pull/65) - Add a weekly CI run that re-resolves the dependency ranges instead of using `uv.lock`, testing against the newest allowed versions and against a low resolution of the direct dependencies. A scheduled run that does not succeed opens an issue.
+
+[#71](https://github.com/anto6715/X-Diff/pull/71) - Releases are now prepared by a manually started **Release** workflow: given a version, it creates the `release/X.Y.Z` branch with the version bump, `uv.lock` and `CHANGES.md`, runs the full test matrix on that commit, and opens the pull request. It replaces the previous workflow, which needed a hand-made release branch with an empty commit and never tested the release commit before the merge.
+
 ## __[xdiff-0.4.1](https://github.com/anto6715/X-Diff/tree/0.4.1) - 2026-10-28__
 
 ### 🔧 Bugfixes
