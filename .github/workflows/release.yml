@@ -4,14 +4,13 @@ name: Release
 # version to release. It:
 #   1. creates release/X.Y.Z from master with one commit: the version bump in
 #      pyproject.toml, the regenerated uv.lock, and CHANGES.md built from changes.d/;
-#   2. starts the Tests workflow on that commit (full Python matrix);
-#   3. opens the pull request into master.
-# Merge the PR when it is green, then publish a GitHub Release tagged X.Y.Z (no "v"),
-# which triggers publish.yml.
+#   2. opens the pull request into master.
 #
-# Why the tests are started explicitly: a push made with the workflow token does not
-# trigger other workflows, so the release commit would otherwise never be tested before
-# the merge. workflow_dispatch is the one event that token is allowed to trigger.
+# Because the pull request is opened by the github-actions bot, GitHub holds its Tests
+# run until a maintainer approves it: on the PR, click "Approve and run workflows". That
+# run tests the release commit on the full Python matrix and provides the PR's required
+# checks. Merge the PR when it is green, then publish a GitHub Release tagged X.Y.Z (no
+# "v"), which triggers publish.yml.
 #
 # Opening the PR needs the repository setting "Allow GitHub Actions to create and approve
 # pull requests" (Settings > Actions > General). Without it the workflow still pushes the
@@ -37,7 +36,6 @@ jobs:
     permissions:
       contents: write # push the release branch
       pull-requests: write # open the pull request
-      actions: write # start the Tests workflow on the release commit
 
     env:
       # Passed through the environment, never interpolated into a script.
@@ -110,17 +108,13 @@ jobs:
           git commit -m "Release $VERSION"
           git push origin "release/$VERSION"
 
-      - name: Start the tests on the release commit
-        # The push above does not trigger tests.yml (see the note at the top of this file).
-        run: gh workflow run tests.yml --ref "release/$VERSION"
-
       - name: Open the pull request
         shell: bash
         run: |
           {
             echo "Release $VERSION, prepared by the Release workflow from \`master\`."
             echo
-            echo "This branch holds one commit: the version bump, the regenerated \`uv.lock\`, and \`CHANGES.md\` built from \`changes.d/\`. The Tests workflow was started on it separately; wait for its checks before merging."
+            echo "This branch holds one commit: the version bump, the regenerated \`uv.lock\`, and \`CHANGES.md\` built from \`changes.d/\`. GitHub holds the Tests run of a pull request opened by the github-actions bot: click **Approve and run workflows** below, and merge once the checks are green."
             echo
             echo "After merging, publish a GitHub Release tagged \`$VERSION\` to upload the package to PyPI."
             echo
