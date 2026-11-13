@@ -893,10 +893,16 @@ def test_live_source_enlarges_the_chunk_cache_while_open(tmp_path):
     assert netCDF4.get_chunk_cache() == before
 
 
-def test_datashader_warm_up_runs_and_serve_starts_it_first(monkeypatch):
+def test_datashader_warm_up_runs_and_serve_starts_it_first(monkeypatch, caplog):
+    import logging
+
     from xdiff.plotting.renderers import server
 
-    server._warm_up_datashader()  # must not raise
+    with caplog.at_level(logging.DEBUG, logger="xdiff"):
+        server._warm_up_datashader()
+        server._warm_up_views()
+    # They swallow their own errors (an optimisation only), so check that none was logged.
+    assert "warm-up failed" not in caplog.text
 
     events = []
 
@@ -911,6 +917,295 @@ def test_datashader_warm_up_runs_and_serve_starts_it_first(monkeypatch):
     server.serve(PlotSource.static(Path("ref.nc"), Path("cmp.nc"), []), port=_free_port(), open_browser=False)
 
     assert events == ["warm-up", "serve"]
+
+
+def test_loaded_pages_start_the_views_warm_up_once_per_server(monkeypatch):
+    """The second warm-up waits for a loaded page (so it does not slow the first one) and runs once."""
+    import panel as pn
+
+    from xdiff.plotting.renderers import server
+
+    runs = []
+    monkeypatch.setattr(server, "_warm_up_views", lambda: runs.append("views"))
+    monkeypatch.setattr(server, "_views_warm_up_threads", [])
+    on_load = []
+    monkeypatch.setattr(pn.state, "onload", on_load.append)
+    application = server.build_application(_static_source(PlotSpec(Path("ref.nc"), Path("cmp.nc"), [], [])))
+
+    application()  # two browser sessions
+    application()
+
+    assert on_load == [server._start_views_warm_up] * 2
+    for callback in on_load:
+        callback().join()
+    assert runs == ["views"]
+
+
+# --------------------------------------------------------------------------- live server: view kept across redraws
+_ZOOM = ((2.0, 6.0), (1.0, 5.0))  # a lon/lat region inside the test grid
+
+
+def _depth_source():
+    """Two map variables on one lon/lat grid, with three depth levels.
+
+    Level 2 holds data only west of 5°E, so its own data extent is narrower than level 0's.
+    """
+    from xdiff.plotting.spec import DimControl, VariableHandle
+
+    lon = np.linspace(0.0, 10.0, 21)
+    lat = np.linspace(0.0, 8.0, 17)
+
+    def slicer(index, selection):
+        difference = np.random.default_rng(index).normal(size=(lat.size, lon.size))
+        if selection["depth"] == 2:
+            difference[:, lon > 5.0] = np.nan
+        return _variable_plot(difference, label=("thetao", "so")[index], lon=lon, lat=lat)
+
+    depth = DimControl(name="depth", size=3, labels=("0 m", "10 m", "20 m"), default=0)
+    handles = [VariableHandle(label=label, is_map=True, extra_dims=(depth,)) for label in ("thetao", "so")]
+    return PlotSource(Path("ref.nc"), Path("cmp.nc"), handles, slicer)
+
+
+def _live(source):
+    """The dashboard, its main area, and that area rendered to Bokeh models as a served page has it."""
+    from xdiff.plotting.renderers.server import build_dashboard
+
+    dashboard = build_dashboard(source)
+    main = dashboard.main.objects[1]
+    return dashboard, main, main.get_root()
+
+
+def _widget(dashboard, name):
+    for item in dashboard.sidebar.objects:
+        for widget in getattr(item, "objects", [item]):  # the time/depth selectors sit in a Column
+            if getattr(widget, "name", None) == name:
+                return widget
+    raise LookupError(name)
+
+
+def _hero_figure(root):
+    """The Bokeh figure of the difference map (the reference card stays collapsed in these tests)."""
+    from bokeh.models import GlyphRenderer, Plot
+    from bokeh.models import Image as BkImage
+
+    for figure in root.select({"type": Plot}):
+        if any(isinstance(r, GlyphRenderer) and isinstance(r.glyph, BkImage) for r in figure.renderers):
+            return figure
+    raise AssertionError("no difference map rendered")
+
+
+def _shown(root):
+    """``(x_range, y_range)`` the difference map shows, and the ``(x_range, y_range)`` Reset returns to."""
+    figure = _hero_figure(root)
+    x, y = figure.x_range, figure.y_range
+    return ((x.start, x.end), (y.start, y.end)), ((x.reset_start, x.reset_end), (y.reset_start, y.reset_end))
+
+
+def _report_zoom(main, x_range, y_range):
+    """Report a pan/zoom as a browser does: through the RangeXY callback HoloViews puts on the map."""
+    import asyncio
+
+    import holoviews as hv
+    from holoviews.plotting.bokeh.callbacks import RangeXYCallback
+
+    hero = main.objects[0].objects[1]
+    plot = hv.renderer("bokeh").get_plot(hero.object)
+    callbacks = [
+        callback
+        for subplot in plot.traverse()
+        for callback in getattr(subplot, "callbacks", [])
+        if isinstance(callback, RangeXYCallback)
+    ]
+    assert callbacks, "the difference map does not listen to pans/zooms"
+    message = {"x0": x_range[0], "x1": x_range[1], "y0": y_range[0], "y1": y_range[1]}
+    for callback in callbacks:
+        asyncio.run(callback.on_msg(message))
+
+
+def test_live_map_keeps_the_zoom_across_depth_toggle_and_variable_changes():
+    dashboard, main, root = _live(_depth_source())
+    _, whole_map = _shown(root)
+    _report_zoom(main, *_ZOOM)
+
+    _widget(dashboard, "depth").value = 1
+    assert _shown(root) == (_ZOOM, whole_map)  # Reset still returns to the whole map
+
+    _widget(dashboard, "Rendering").value = "blocks"
+    assert _shown(root)[0] == _ZOOM
+
+    _widget(dashboard, "Variable").value = 1  # same lon/lat grid
+    assert _shown(root)[0] == _ZOOM
+
+    # The colour controls still restyle the same figure in place.
+    figure = _hero_figure(root)
+    _widget(dashboard, "colour limit (±)").value = 0.3
+    _widget(dashboard, "Colormap").value = "coolwarm"
+    assert _hero_figure(root) is figure
+    assert _shown(root)[0] == _ZOOM
+
+
+def test_variable_switch_keeps_the_time_depth_level_shown():
+    from xdiff.plotting.spec import VariableHandle
+
+    base = _depth_source()
+    surface = VariableHandle(label="zos", is_map=True, extra_dims=())  # a 2-D variable, no depth
+    reads = []
+
+    def slicer(index, selection):
+        reads.append((index, dict(selection)))
+        return base.slice(0, {"depth": 0}) if index == 2 else base.slice(index, selection)
+
+    source = PlotSource(Path("ref.nc"), Path("cmp.nc"), [*base.variables, surface], slicer)
+    dashboard, _, _ = _live(source)
+    variable = _widget(dashboard, "Variable")
+    _widget(dashboard, "depth").value = 2
+    reads.clear()
+
+    variable.value = 1
+    assert _widget(dashboard, "depth").value == 2
+    assert reads == [(1, {"depth": 2})]  # one read, at the kept level, also used for the colour limit
+
+    variable.value = 2  # no depth here...
+    variable.value = 0  # ...and back to the depth last shown
+    assert _widget(dashboard, "depth").value == 2
+
+
+def test_start_level_keeps_the_same_coordinate_else_the_default():
+    from xdiff.plotting.renderers.server import _start_level
+    from xdiff.plotting.spec import DimControl
+
+    depth = DimControl(name="deptht", size=3, labels=("1.01823", "3.1", "5.2"), default=0)
+    time = DimControl(name="time_counter", size=2, labels=("2020-01-01T12:00", "2020-01-02T12:00"), default=1)
+
+    assert _start_level(depth, {"deptht": "3.1"}) == 1
+    assert _start_level(depth, {"deptht": "4.0"}) == 0  # that level does not exist in this variable
+    assert _start_level(depth, {"depthu": "3.1"}) == 0  # another dimension
+    assert _start_level(time, {}) == 1  # nothing shown before: the default (here --last-time-step)
+
+
+def test_live_map_keeps_its_frame_when_not_zoomed():
+    dashboard, _, root = _live(_depth_source())
+    level_0, _ = _shown(root)
+
+    _widget(dashboard, "depth").value = 2  # its data stops at 5°E
+
+    shown, reset_to = _shown(root)
+    assert shown == level_0  # the map does not jump to this level's narrower extent...
+    assert reset_to[0][1] <= 5.0  # ...but Reset goes to it
+
+
+def test_live_map_converts_the_zoom_when_a_basemap_is_toggled():
+    from datashader.utils import lnglat_to_meters
+    from holoviews.util.transform import easting_northing_to_lon_lat
+
+    dashboard, main, root = _live(_depth_source())
+    _report_zoom(main, *_ZOOM)
+
+    _widget(dashboard, "Basemap").value = "CartoLight"
+    (x_range, y_range), _ = _shown(root)
+    eastings, northings = lnglat_to_meters(np.array(_ZOOM[0]), np.array(_ZOOM[1]))
+    assert np.allclose(x_range, eastings) and np.allclose(y_range, northings)
+
+    # A pan with the basemap on is recorded too (in metres) and converted back when it goes off.
+    panned = (eastings + 50_000.0, northings)
+    _report_zoom(main, *panned)
+    _widget(dashboard, "Basemap").value = None
+    (x_range, y_range), _ = _shown(root)
+    lon, lat = easting_northing_to_lon_lat(*panned)
+    assert np.allclose(x_range, lon) and np.allclose(y_range, lat)
+
+
+@pytest.mark.parametrize("basemap", [None, "CartoLight"])
+def test_restored_view_is_rasterized_at_full_resolution(basemap):
+    """The first image covers the restored view, not the whole map stretched over it.
+
+    With a basemap the limits must also sit on the data layer: HoloViews takes the first
+    region to rasterize, and the first view it reports, from that layer, not from the overlay.
+    """
+    import holoviews as hv
+    import panel as pn
+    from bokeh.models import GlyphRenderer, Plot
+    from bokeh.models import Image as BkImage
+    from datashader.utils import lnglat_to_meters
+
+    from xdiff.plotting.renderers.server import _LONLAT, _hero_map, _load_viz, _View
+
+    _load_viz()
+    variable = _variable_plot(
+        np.random.default_rng(0).normal(size=(40, 80)),
+        lon=np.linspace(-10.0, 20.0, 80),
+        lat=np.linspace(30.0, 45.0, 40),
+    )
+    view = _View(_LONLAT, (0.0, 5.0), (35.0, 38.0))
+    reported = []
+    hero = _hero_map(
+        hv,
+        pn,
+        variable,
+        method="smooth",
+        basemap=basemap,
+        cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+        climit_widget=pn.widgets.FloatSlider(start=0.0, end=3.0, value=1.0),
+        view=view,
+        on_view=reported.append,
+    )
+    root = pn.Column(hero).get_root()
+
+    expected = view.x_range if basemap is None else tuple(lnglat_to_meters(np.array(view.x_range), np.zeros(2))[0])
+    images = [
+        renderer.data_source.data
+        for figure in root.select({"type": Plot})
+        for renderer in figure.renderers
+        if isinstance(renderer, GlyphRenderer) and isinstance(renderer.glyph, BkImage)
+    ]
+    image_x = (images[0]["x"][0], images[0]["x"][0] + images[0]["dw"][0])
+    assert np.allclose(image_x, expected)
+    assert np.allclose(reported[-1].x_range, expected)  # the stored view is the one shown
+
+
+# The field's own rows at ±90° still project to infinity (datashader/numpy warn); only the view is clamped.
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_global_map_with_a_basemap_keeps_a_finite_view_and_reset():
+    """Regression: data at ±90° latitude must not send Reset (or the stored view) to infinity.
+
+    Web Mercator puts the poles infinitely far north and south, so the extent is clamped.
+    """
+    import holoviews as hv
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _hero_map, _load_viz
+
+    _load_viz()
+    variable = _variable_plot(np.ones((19, 37)), lon=np.linspace(-180.0, 180.0, 37), lat=np.linspace(-90.0, 90.0, 19))
+    reported = []
+    hero = _hero_map(
+        hv,
+        pn,
+        variable,
+        method="smooth",
+        basemap="CartoLight",
+        cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+        climit_widget=pn.widgets.FloatSlider(start=0.0, end=3.0, value=1.0),
+        on_view=reported.append,
+    )
+    shown, reset_to = _shown(pn.Column(hero).get_root())
+
+    assert np.all(np.isfinite(shown)) and np.all(np.isfinite(reset_to))
+    assert np.all(np.isfinite(reported[-1].y_range))
+
+
+def test_view_carries_over_only_between_matching_coordinates():
+    from xdiff.plotting.renderers.server import _INDEX, _LONLAT, _MERCATOR, _ranges_in, _View
+
+    view = _View(_LONLAT, (0.0, 10.0), (30.0, 40.0))
+
+    assert _ranges_in(view, _LONLAT) == (view.x_range, view.y_range)
+    assert _ranges_in(view, _INDEX) is None  # a field without coordinates opens whole
+    assert _ranges_in(None, _LONLAT) is None
+    metres = _ranges_in(view, _MERCATOR)
+    assert np.allclose(_ranges_in(_View(_MERCATOR, *metres), _LONLAT), (view.x_range, view.y_range))
+    polar = _ranges_in(_View(_LONLAT, (0.0, 10.0), (80.0, 90.0)), _MERCATOR)
+    assert np.all(np.isfinite(polar))  # clamped to Web Mercator's latitude limit
 
 
 # --------------------------------------------------------------------------- static map style
