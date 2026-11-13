@@ -1,5 +1,6 @@
 """Tests for the plot feature: PlotSpec building (all the logic) and renderer smoke."""
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -581,6 +582,58 @@ def test_ensure_port_available_raises_for_busy_port():
             ensure_port_available("localhost", busy_port)
     finally:
         holder.close()
+
+
+def test_ensure_port_available_raises_for_port_a_server_listens_on():
+    """A port another ``xdiff plot`` listens on is refused, though both bind with SO_REUSEADDR."""
+    import re
+
+    from bokeh.server.util import bind_sockets
+
+    from xdiff.plotting.renderers.server import ensure_port_available
+
+    listeners, busy_port = bind_sockets("localhost", 0)  # how Bokeh's server binds its port
+    try:
+        message = f"port {busy_port} on localhost is already in use; choose another with --port"
+        with pytest.raises(ValueError, match=re.escape(message)):
+            ensure_port_available("localhost", busy_port)
+    finally:
+        for listener in listeners:
+            listener.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Tornado, so the server too, binds without SO_REUSEADDR on Windows")
+def test_ensure_port_available_passes_while_closed_connections_are_in_time_wait():
+    """Regression #86: right after Ctrl-C the same port was refused for ~60 s.
+
+    The stopped server closed its browser connections first, which leaves them in TCP
+    TIME-WAIT after the listener is gone. A plain bind is refused then, the server's own
+    bind (SO_REUSEADDR) is not, and the check must agree with the server.
+    """
+    import socket
+
+    from bokeh.server.util import bind_sockets
+
+    from xdiff.plotting.renderers.server import ensure_port_available
+
+    listeners, port = bind_sockets("localhost", 0)  # how Bokeh's server binds its port
+    listener = listeners[0]
+    host = listener.getsockname()[0]
+    try:
+        listener.settimeout(5)  # Tornado leaves its sockets non-blocking
+        with socket.create_connection((host, port), timeout=5) as browser:
+            connection, _ = listener.accept()
+            connection.close()  # the side that closes first is the one left in TIME-WAIT
+            assert browser.recv(1) == b""
+    finally:
+        for sock in listeners:
+            sock.close()
+
+    # The state that made the old plain-bind check fail: nothing listens, yet the port is taken.
+    with socket.socket(listener.family, socket.SOCK_STREAM) as plain, pytest.raises(OSError):
+        plain.bind((host, port))
+
+    ensure_port_available("localhost", port)
 
 
 def test_serving_delivers_plot_glyphs_to_a_session():
