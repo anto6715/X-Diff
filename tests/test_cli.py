@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 
 from xdiff.conf import settings
@@ -328,10 +329,12 @@ def test_dirs_command_supports_no_progress(monkeypatch):
     assert captured["disabled"] is True
 
 
-def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_path):
+@pytest.mark.parametrize("package", ["holoviews", "panel", "bokeh"])
+def test_plot_live_server_reports_missing_plot_extra_cleanly(monkeypatch, tmp_path, package):
     # A None entry in sys.modules makes Python treat the package as not installed, so this
-    # exercises the real check and the real install hint.
-    monkeypatch.setitem(sys.modules, "holoviews", None)
+    # exercises the real check and the real install hint. bokeh is checked too because the
+    # port check imports it before anything else from the plotting stack.
+    monkeypatch.setitem(sys.modules, package, None)
     reference = tmp_path / "reference.nc"
     comparison = tmp_path / "comparison.nc"
     reference.touch()

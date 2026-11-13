@@ -619,13 +619,15 @@ def test_ensure_port_available_passes_while_closed_connections_are_in_time_wait(
     listeners, port = bind_sockets("localhost", 0)  # how Bokeh's server binds its port
     listener = listeners[0]
     host = listener.getsockname()[0]
-    listener.settimeout(5)  # Tornado leaves its sockets non-blocking
-    with socket.create_connection((host, port), timeout=5) as browser:
-        connection, _ = listener.accept()
-        connection.close()  # the side that closes first is the one left in TIME-WAIT
-        assert browser.recv(1) == b""
-    for sock in listeners:
-        sock.close()
+    try:
+        listener.settimeout(5)  # Tornado leaves its sockets non-blocking
+        with socket.create_connection((host, port), timeout=5) as browser:
+            connection, _ = listener.accept()
+            connection.close()  # the side that closes first is the one left in TIME-WAIT
+            assert browser.recv(1) == b""
+    finally:
+        for sock in listeners:
+            sock.close()
 
     # The state that made the old plain-bind check fail: nothing listens, yet the port is taken.
     with socket.socket(listener.family, socket.SOCK_STREAM) as plain, pytest.raises(OSError):

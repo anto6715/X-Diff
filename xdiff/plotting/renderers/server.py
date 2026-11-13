@@ -94,7 +94,7 @@ def ensure_backend_available() -> None:
     """
     from importlib.util import find_spec
 
-    if any(find_spec(name) is None for name in ("holoviews", "panel")):
+    if any(find_spec(name) is None for name in ("holoviews", "panel", "bokeh")):
         raise RuntimeError(_MISSING_BACKEND_HINT)
 
 
@@ -105,22 +105,27 @@ def ensure_port_available(address: str, port: int) -> None:
     server on exactly ``PORT``; silently moving to another would point the tunnel at
     nothing. Raises ``ValueError`` naming the port so the CLI surfaces a clear message.
 
-    The check binds the port with ``bind_sockets``, the function Bokeh's server binds with,
-    and releases it at once, so it agrees with the real bind: every address ``address``
-    resolves to (IPv4 and IPv6), and Tornado's ``SO_REUSEADDR`` except on Windows. That
-    option lets a restart right after Ctrl-C reuse the port while the closed browser
-    connections sit in TCP ``TIME-WAIT`` (~60 s), and still refuses a port another server
-    is listening on.
+    The check binds (and briefly listens on) the port with ``bind_sockets``, the function
+    Bokeh's server binds with, then closes it, so it agrees with the real bind: every
+    address ``address`` resolves to (IPv4 and IPv6), and Tornado's ``SO_REUSEADDR`` except
+    on Windows. That option lets a restart right after Ctrl-C reuse the port while the
+    closed browser connections sit in TCP ``TIME-WAIT`` (~60 s), and a port another server
+    listens on is still refused. On macOS/BSD it also lets a ``localhost`` bind sit beside
+    a server on the wildcard address (``0.0.0.0``): there the check passes, as the
+    server's own bind does.
     """
     from bokeh.server.util import bind_sockets
 
     try:
         sockets, _ = bind_sockets(address, port)
     except OSError as exc:
+        # Tornado does not close the sockets it bound before the failure, nor the one that
+        # failed; they are only reachable through this traceback, so dropping it frees them
+        # now rather than whenever the ValueError is collected.
         raise ValueError(
             f"port {port} on {address} is already in use; choose another with --port "
             f"(note the Dask dashboard uses :8787)"
-        ) from exc
+        ) from exc.with_traceback(None)
     for sock in sockets:
         sock.close()
 
