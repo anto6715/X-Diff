@@ -267,7 +267,8 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
 
     Every other change rebuilds the hero, which reopens on the region last shown: a time/depth
     change, the toggle, and a switch to a variable in the same coordinates keep the view, and
-    toggling a basemap converts it between degrees and Web Mercator metres.
+    toggling a basemap converts it between degrees and Web Mercator metres. A variable switch
+    also keeps the time/depth levels shown, where the new variable has them.
     """
     holoviews, panel = _load_viz()
     handles = source.variables
@@ -298,7 +299,9 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
     # "slice" memoises the last slice, so a render-mode or basemap change, and the second
     # look on a variable switch, reuse it; "card_open" keeps the reference card as the user
     # left it across redraws; "view" is the _View the hero last showed, so a redraw reopens there.
-    state: dict = {"names": [], "selects": [], "slice": None, "card_open": False, "view": None}
+    # "dims" are the DimControls of the variable shown, paired with their "selects"; "levels"
+    # maps each time/depth dim name to the label last shown on it, by any variable.
+    state: dict = {"dims": (), "selects": [], "levels": {}, "slice": None, "card_open": False, "view": None}
 
     def current_slice(index: int, selection: dict):
         key = (index, tuple(sorted(selection.items())))
@@ -320,7 +323,7 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
         # plot, reopening on state["view"]); colour limit and colormap are bound in place and
         # never trigger this.
         index = var_select.value
-        selection = {name: select.value for name, select in zip(state["names"], state["selects"], strict=True)}
+        selection = {dim.name: select.value for dim, select in zip(state["dims"], state["selects"], strict=True)}
         try:
             variable = current_slice(index, selection)
         except (RuntimeError, ValueError) as exc:
@@ -347,19 +350,24 @@ def build_dashboard(source: PlotSource, *, default_index: int = 0):
 
     def rebuild_for_variable(index: int) -> None:
         # Rebuild the per-variable dimension selectors (Select, not slider: fires once on pick,
-        # not on every step of a drag) and re-target the colour limit from the default slice.
+        # not on every step of a drag) and re-target the colour limit from the slice they open
+        # on: the time/depth levels last shown where the new variable has them, else defaults.
+        # Levels are remembered per dim, so passing through a 2-D variable keeps the depth.
         handle = handles[index]
         for widget in map_controls:
             widget.disabled = not handle.is_map
-        selects = [_dim_select(panel, dim) for dim in handle.extra_dims]
+        previous = zip(state["dims"], state["selects"], strict=True)
+        state["levels"].update({dim.name: dim.labels[select.value] for dim, select in previous})
+        start = {dim.name: _start_level(dim, state["levels"]) for dim in handle.extra_dims}
+        selects = [_dim_select(panel, dim, start[dim.name]) for dim in handle.extra_dims]
         for select in selects:
             select.param.watch(redraw, "value")
-        state["names"] = [dim.name for dim in handle.extra_dims]
+        state["dims"] = handle.extra_dims
         state["selects"] = selects
         dims_box[:] = selects or [panel.pane.Markdown("_no time / depth dimensions_", margin=(0, 10))]
         if handle.is_map:
             try:
-                variable = current_slice(index, {dim.name: dim.default for dim in handle.extra_dims})
+                variable = current_slice(index, start)
             except (RuntimeError, ValueError):
                 pass  # redraw() surfaces the reason; leave the colour-limit bounds as they are
             else:
@@ -402,14 +410,25 @@ def _sidebar(panel, var_select, dims_box, climit, cmap_select, render_toggle, ba
     ]
 
 
-def _dim_select(panel, dim: DimControl):
+def _dim_select(panel, dim: DimControl, start: int):
     """A dropdown selecting one index of a dimension (time, depth, …) by its coordinate label.
 
     A ``Select`` (not a slider) so a choice re-slices exactly once, instead of firing for every
-    value swept through while dragging a slider.
+    value swept through while dragging a slider. It opens on index ``start``.
     """
     options = {label: index for index, label in enumerate(dim.labels)}
-    return panel.widgets.Select(name=dim.name, options=options, value=dim.default)
+    return panel.widgets.Select(name=dim.name, options=options, value=start)
+
+
+def _start_level(dim: DimControl, levels: dict[str, str]) -> int:
+    """The index a newly selected variable's ``dim`` opens on.
+
+    ``levels`` maps dimension names to the label of the level last shown on them. That level
+    is kept when ``dim`` has the same name and that same coordinate label (e.g. the same
+    depth); otherwise the dimension opens on its default.
+    """
+    label = levels.get(dim.name)
+    return dim.labels.index(label) if label in dim.labels else dim.default
 
 
 def _rendered_variable(

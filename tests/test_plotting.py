@@ -1044,6 +1044,45 @@ def test_live_map_keeps_the_zoom_across_depth_toggle_and_variable_changes():
     assert _shown(root)[0] == _ZOOM
 
 
+def test_variable_switch_keeps_the_time_depth_level_shown():
+    from xdiff.plotting.spec import VariableHandle
+
+    base = _depth_source()
+    surface = VariableHandle(label="zos", is_map=True, extra_dims=())  # a 2-D variable, no depth
+    reads = []
+
+    def slicer(index, selection):
+        reads.append((index, dict(selection)))
+        return base.slice(0, {"depth": 0}) if index == 2 else base.slice(index, selection)
+
+    source = PlotSource(Path("ref.nc"), Path("cmp.nc"), [*base.variables, surface], slicer)
+    dashboard, _, _ = _live(source)
+    variable = _widget(dashboard, "Variable")
+    _widget(dashboard, "depth").value = 2
+    reads.clear()
+
+    variable.value = 1
+    assert _widget(dashboard, "depth").value == 2
+    assert reads == [(1, {"depth": 2})]  # one read, at the kept level, also used for the colour limit
+
+    variable.value = 2  # no depth here...
+    variable.value = 0  # ...and back to the depth last shown
+    assert _widget(dashboard, "depth").value == 2
+
+
+def test_start_level_keeps_the_same_coordinate_else_the_default():
+    from xdiff.plotting.renderers.server import _start_level
+    from xdiff.plotting.spec import DimControl
+
+    depth = DimControl(name="deptht", size=3, labels=("1.01823", "3.1", "5.2"), default=0)
+    time = DimControl(name="time_counter", size=2, labels=("2020-01-01T12:00", "2020-01-02T12:00"), default=1)
+
+    assert _start_level(depth, {"deptht": "3.1"}) == 1
+    assert _start_level(depth, {"deptht": "4.0"}) == 0  # that level does not exist in this variable
+    assert _start_level(depth, {"depthu": "3.1"}) == 0  # another dimension
+    assert _start_level(time, {}) == 1  # nothing shown before: the default (here --last-time-step)
+
+
 def test_live_map_keeps_its_frame_when_not_zoomed():
     dashboard, _, root = _live(_depth_source())
     level_0, _ = _shown(root)
