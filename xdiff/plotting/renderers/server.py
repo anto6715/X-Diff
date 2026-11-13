@@ -15,7 +15,6 @@ small (no cartopy/geoviews).
 from __future__ import annotations
 
 import logging
-import socket
 import threading
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -105,15 +104,25 @@ def ensure_port_available(address: str, port: int) -> None:
     Never auto-increments: a user who set up ``ssh -L PORT:localhost:PORT`` needs the
     server on exactly ``PORT``; silently moving to another would point the tunnel at
     nothing. Raises ``ValueError`` naming the port so the CLI surfaces a clear message.
+
+    The check binds the port with ``bind_sockets``, the function Bokeh's server binds with,
+    and releases it at once, so it agrees with the real bind: every address ``address``
+    resolves to (IPv4 and IPv6), and Tornado's ``SO_REUSEADDR`` except on Windows. That
+    option lets a restart right after Ctrl-C reuse the port while the closed browser
+    connections sit in TCP ``TIME-WAIT`` (~60 s), and still refuses a port another server
+    is listening on.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        try:
-            probe.bind((address, port))
-        except OSError as exc:
-            raise ValueError(
-                f"port {port} on {address} is already in use; choose another with --port "
-                f"(note the Dask dashboard uses :8787)"
-            ) from exc
+    from bokeh.server.util import bind_sockets
+
+    try:
+        sockets, _ = bind_sockets(address, port)
+    except OSError as exc:
+        raise ValueError(
+            f"port {port} on {address} is already in use; choose another with --port "
+            f"(note the Dask dashboard uses :8787)"
+        ) from exc
+    for sock in sockets:
+        sock.close()
 
 
 def build_application(source: PlotSource, *, default_index: int = 0):
