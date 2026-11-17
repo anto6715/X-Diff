@@ -9,6 +9,8 @@ __pycache__
 MANIFEST
 dist/
 .coverage
+# Per-process coverage data files (.coverage.<host>.pid<N>.<random>) that a test run can leave behind.
+.coverage.*
 coverage.xml
 
 
