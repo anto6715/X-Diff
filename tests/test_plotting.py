@@ -1055,7 +1055,11 @@ def _shown(root):
 
 
 def _report_zoom(main, x_range, y_range):
-    """Report a pan/zoom as a browser does: through the RangeXY callback HoloViews puts on the map."""
+    """Report a pan/zoom to the map's RangeXY stream, as HoloViews does once the browser's event arrives.
+
+    The message goes to the callback of a separate plot of the same map, which shares its
+    streams, not through the served figure's own event handling.
+    """
     import asyncio
 
     import holoviews as hv
