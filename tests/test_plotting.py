@@ -1072,7 +1072,10 @@ def _report_zoom(main, x_range, y_range):
     assert callbacks, "the difference map does not listen to pans/zooms"
     message = {"x0": x_range[0], "x1": x_range[1], "y0": y_range[0], "y1": y_range[1]}
     for callback in callbacks:
-        asyncio.run(callback.on_msg(message))
+        handled = callback.on_msg(message)
+        # on_msg is a coroutine from holoviews 1.20; 1.19 (the lower bound) handles the message synchronously.
+        if asyncio.iscoroutine(handled):
+            asyncio.run(handled)
 
 
 def test_live_map_keeps_the_zoom_across_depth_toggle_and_variable_changes():
