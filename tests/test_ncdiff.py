@@ -280,7 +280,7 @@ def test_compare_datasets_reports_missing_mapped_comparison_variable():
     assert len(results) == 1
     assert not results[0].passed
     assert results[0].variable == "thetao -> votemper"
-    assert results[0].description != "-"
+    assert results[0].description == "Not in the comparison file"
 
 
 def test_compare_files_reads_netcdf_inputs(tmp_path):
@@ -693,6 +693,145 @@ def test_compare_files_explicit_selection_ignores_names_outside_it(tmp_path):
 
     assert [result.variable for result in results] == ["temp"]
     assert results[0].passed
+
+
+def _compare_selection(tmp_path, reference, comparison, variables, *, last_time_step=False):
+    """Write both datasets and compare the given -v selection."""
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+    return compare_files(reference_path, comparison_path, variables, last_time_step=last_time_step)
+
+
+@pytest.mark.parametrize(
+    ("reference_names", "comparison_names", "description"),
+    [
+        (["temp"], ["temp", "salt"], "Not in the reference file"),
+        (["temp", "salt"], ["temp"], "Not in the comparison file"),
+        (["temp"], ["temp"], "Not in either file"),
+    ],
+)
+def test_compare_files_fails_on_a_v_name_missing_from_a_file(tmp_path, reference_names, comparison_names, description):
+    def dataset(names):
+        return xr.Dataset({name: ("x", [1.0, 2.0]) for name in names})
+
+    results = _compare_selection(
+        tmp_path, dataset(reference_names), dataset(comparison_names), [("temp", "temp"), ("salt", "salt")]
+    )
+
+    # Each requested name keeps its row; a missing one used to be dropped (or, missing
+    # from the comparison file only, failed with xarray's KeyError text).
+    assert [(result.variable, result.description) for result in results] == [("temp", "-"), ("salt", description)]
+    assert results[0].passed
+    assert not results[1].passed
+
+
+def test_compare_files_fails_on_a_single_v_name_missing_from_both_files(tmp_path):
+    dataset = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+
+    results = _compare_selection(tmp_path, dataset, dataset, [("tmep", "tmep")])
+
+    # A failed row naming it, rather than no row at all.
+    assert [(result.variable, result.description) for result in results] == [("tmep", "Not in either file")]
+
+
+@pytest.mark.parametrize(
+    ("reference_name", "comparison_name", "description"),
+    [
+        ("thetao", "votemper", "-"),
+        ("thetao", "missing", "Not in the comparison file"),
+        ("missing", "votemper", "Not in the reference file"),
+    ],
+)
+def test_compare_files_names_the_side_of_a_missing_mapped_v_name(
+    tmp_path, reference_name, comparison_name, description
+):
+    reference = xr.Dataset({"thetao": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"votemper": ("x", [1.0, 2.0])})
+
+    results = _compare_selection(tmp_path, reference, comparison, [(reference_name, comparison_name)])
+
+    assert [(result.variable, result.description) for result in results] == [
+        (f"{reference_name} -> {comparison_name}", description)
+    ]
+
+
+@pytest.mark.parametrize(("comparison_size", "description"), [(3, "-"), (4, "Dimension size mismatch: 3 - 4")])
+def test_compare_files_compares_the_size_of_a_v_named_dimension_without_coordinate(
+    tmp_path, comparison_size, description
+):
+    reference = xr.Dataset({"temp": ("k", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"temp": ("k", np.arange(comparison_size, dtype=float))})
+
+    results = _compare_selection(tmp_path, reference, comparison, [("k", "k")])
+
+    # As without -v; it used to be dropped because it is not a variable.
+    assert [(result.variable, result.description) for result in results] == [("k", description)]
+    assert results[0].note == ("size only" if description == "-" else "")
+
+
+@pytest.mark.parametrize("variable_side", ["reference", "comparison"])
+def test_compare_files_fails_on_a_v_name_that_is_only_a_dimension_in_one_file(tmp_path, variable_side):
+    with_variable = xr.Dataset({"temp": ("k", [1.0, 2.0])}, coords={"k": [10.0, 20.0]})
+    with_dimension = xr.Dataset({"temp": ("k", [1.0, 2.0])})
+    if variable_side == "reference":
+        reference, comparison = with_variable, with_dimension
+    else:
+        reference, comparison = with_dimension, with_variable
+
+    named = _compare_selection(tmp_path, reference, comparison, [("k", "k")])
+    unnamed = _compare_default(tmp_path, reference, comparison)
+
+    # The same row as without -v: the variable is in one file only.
+    assert [(result.variable, result.description) for result in named] == [("k", f"Only in the {variable_side} file")]
+    assert [(result.variable, result.description) for result in unnamed if result.variable == "k"] == [
+        ("k", f"Only in the {variable_side} file")
+    ]
+
+
+def test_compare_files_fails_on_a_v_named_dimension_missing_from_a_file(tmp_path):
+    reference = xr.Dataset({"temp": ("k", [1.0, 2.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+
+    results = _compare_selection(tmp_path, reference, comparison, [("k", "k")])
+
+    assert [(result.variable, result.description) for result in results] == [("k", "Not in the comparison file")]
+
+
+def test_compare_files_compares_a_mapped_v_named_dimension_without_coordinate(tmp_path):
+    reference = xr.Dataset({"temp": ("k", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"temp": ("m", [1.0, 2.0, 3.0, 4.0])})
+
+    results = _compare_selection(tmp_path, reference, comparison, [("k", "m")])
+
+    assert [(result.variable, result.description) for result in results] == [
+        ("k -> m", "Dimension size mismatch: 3 - 4")
+    ]
+
+
+@pytest.mark.parametrize(("reference_name", "comparison_name"), [("time", "time"), ("x", "time_counter")])
+def test_compare_files_last_time_step_rejects_a_v_named_time_dimension_without_coordinate(
+    tmp_path, reference_name, comparison_name
+):
+    reference = xr.Dataset({"temp": ((reference_name, "y"), [[1.0, 2.0], [3.0, 4.0]])})
+    comparison = xr.Dataset({"temp": ((comparison_name, "y"), [[1.0, 2.0], [3.0, 4.0]])})
+
+    results = _compare_selection(
+        tmp_path, reference, comparison, [(reference_name, comparison_name)], last_time_step=True
+    )
+
+    # Like asking for a time coordinate: only the last step is compared, so not its size.
+    # Either name being a time dimension is enough.
+    assert [result.description for result in results] == ["Can't compare time if last time step is enabled"]
+
+
+@pytest.mark.parametrize(("name", "last_time_step"), [("time", False), ("x", True)])
+def test_compare_files_compares_the_size_of_a_v_named_dimension_otherwise(tmp_path, name, last_time_step):
+    # A time dimension without --last-time-step, any other dimension with it.
+    dataset = xr.Dataset({"temp": (("time", "x"), [[1.0, 2.0], [3.0, 4.0]])})
+
+    results = _compare_selection(tmp_path, dataset, dataset, [(name, name)], last_time_step=last_time_step)
+
+    assert [(result.variable, result.description, result.note) for result in results] == [(name, "-", "size only")]
 
 
 def _run_with_time_axes(steps):

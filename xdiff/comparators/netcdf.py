@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Iterable
+from collections.abc import Hashable, Iterable
 from functools import lru_cache
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -80,12 +80,8 @@ def compare_files(
             dataset2 = crop_to_bbox(dataset2, bbox)
         if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
             return compare_all_variables(dataset1, dataset2, last_time_step=last_time_step)
-        return compare_datasets(
-            dataset1,
-            dataset2,
-            get_dataset_variables(dataset1, variables),
-            last_time_step=last_time_step,
-        )
+        # Every -v name gets a row, so one missing from a file fails instead of vanishing.
+        return compare_datasets(dataset1, dataset2, list(variables), last_time_step=last_time_step)
 
 
 ONLY_IN_REFERENCE = "Only in the reference file"
@@ -95,6 +91,10 @@ DIMENSION_ONLY_IN_REFERENCE = "Dimension only in the reference file"
 DIMENSION_ONLY_IN_COMPARISON = "Dimension only in the comparison file"
 # Kept short: it shows in the DESCR column of every passing row of such a dimension.
 DIMENSION_SIZE_ONLY = "size only"
+# A name given with -v that a file lacks. The row label shows both names of a REF=CMP pair.
+NOT_IN_REFERENCE = "Not in the reference file"
+NOT_IN_COMPARISON = "Not in the comparison file"
+NOT_IN_EITHER = "Not in either file"
 
 
 def compare_all_variables(
@@ -389,6 +389,14 @@ def compare_datasets(
     *,
     last_time_step: bool,
 ) -> list[CompareResult]:
+    """Compare each name, or (reference_name, comparison_name) pair, on its own row.
+
+    A variable is compared by value (see ``compare_variables``) and a dimension without a
+    coordinate variable by size. A name missing from a file fails and says which file
+    lacks it. A name that is a variable in one file but only a dimension in the other
+    fails as a variable found in one file only, the row ``compare_all_variables`` gives
+    it. An error while comparing a pair is recorded on its row instead of raised.
+    """
     results: list[CompareResult] = []
 
     for item in variables:
@@ -396,12 +404,12 @@ def compare_datasets(
         label = variable_label(reference_name, comparison_name)
         logger.info("Comparing %s", label)
         try:
-            reference_field = reference[reference_name]
-            comparison_field = comparison[comparison_name]
             results.append(
-                compare_variables(
-                    reference_field,
-                    comparison_field,
+                _compare_names(
+                    reference,
+                    comparison,
+                    reference_name,
+                    comparison_name,
                     label,
                     last_time_step=last_time_step,
                 )
@@ -410,6 +418,56 @@ def compare_datasets(
             results.append(CompareResult(variable=label, description=str(exc)))
 
     return results
+
+
+def _compare_names(
+    reference: xr.Dataset,
+    comparison: xr.Dataset,
+    reference_name: Hashable,
+    comparison_name: Hashable,
+    label: str,
+    *,
+    last_time_step: bool,
+) -> CompareResult:
+    reference_kind = _name_kind(reference, reference_name)
+    comparison_kind = _name_kind(comparison, comparison_name)
+
+    if reference_kind is None or comparison_kind is None:
+        if reference_kind is None and comparison_kind is None:
+            description = NOT_IN_EITHER
+        elif reference_kind is None:
+            description = NOT_IN_REFERENCE
+        else:
+            description = NOT_IN_COMPARISON
+        return CompareResult(variable=label, description=description)
+
+    if reference_kind == comparison_kind == "variable":
+        return compare_variables(
+            reference[reference_name],
+            comparison[comparison_name],
+            label,
+            last_time_step=last_time_step,
+        )
+
+    if reference_kind == comparison_kind == "dimension":
+        names = (reference_name, comparison_name)
+        if last_time_step and any(find_time_dims_name([name]) is not None for name in names):
+            # Same as asking for a time coordinate (see compare_variables): only one step is compared.
+            raise LastTimestepTimeCheckException("Can't compare time if last time step is enabled")
+        return compare_dimension_sizes(label, reference.sizes[reference_name], comparison.sizes[comparison_name])
+
+    # A variable in one file, only a dimension in the other: the same row as without -v.
+    description = ONLY_IN_REFERENCE if reference_kind == "variable" else ONLY_IN_COMPARISON
+    return CompareResult(variable=label, description=description)
+
+
+def _name_kind(dataset: xr.Dataset, name: Hashable) -> Literal["variable", "dimension"] | None:
+    """``"variable"``, ``"dimension"`` (a dimension without coordinate variable) or None if absent."""
+    if name in dataset.variables:
+        return "variable"
+    if name in dataset.sizes:
+        return "dimension"
+    return None
 
 
 def compare_variables(
@@ -647,17 +705,17 @@ def get_dataset_variables(
     dataset: xr.Dataset,
     variables: tuple[tuple[str, str], ...] | list | object | None,
 ) -> list[tuple[str, str]]:
-    """Select comparable (reference_name, comparison_name) variable pairs.
+    """Select the (reference_name, comparison_name) pairs that ``xdiff plot`` considers.
 
-    A name missing from the reference dataset is dropped; the comparison-side name is
-    validated later in ``compare_datasets`` against the comparison dataset. When no
-    selection is given, defaults to every data variable and dimension, compared under
-    the same name on both sides.
+    A name that is not a variable of the reference dataset is dropped (``xdiff plot``
+    reports a dropped ``-v`` name itself); the comparison-side name is checked later.
+    When no selection is given, defaults to every data variable and dimension coordinate
+    (a dimension without a coordinate variable is dropped like any other name), under
+    the same name on both sides. ``xdiff plot`` then leaves out text and object
+    variables, which have no difference to plot.
 
-    ``compare_files`` uses this for a ``-v`` selection only; with no selection it calls
-    ``compare_all_variables``, which also covers auxiliary coordinates and whatever is
-    in the comparison dataset alone. ``xdiff plot`` builds its variable list from this,
-    then leaves out text and object variables, which have no difference to plot.
+    ``compare_files`` does not use this: it hands a ``-v`` selection to ``compare_datasets``
+    as given, and with no selection calls ``compare_all_variables``.
     """
     if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
         pairs = [(name, name) for name in list(dataset.data_vars) + list(dataset.dims)]

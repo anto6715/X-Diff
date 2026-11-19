@@ -391,6 +391,25 @@ def test_files_fails_on_a_variable_only_in_the_comparison_file(tmp_path):
     assert "Only in the comparison file" in result.output
 
 
+def test_files_fails_on_a_mistyped_v_name(tmp_path):
+    import xarray as xr
+
+    dataset = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+    dataset.to_netcdf(tmp_path / "ref.nc")
+    dataset.to_netcdf(tmp_path / "cmp.nc")
+
+    result = CliRunner().invoke(
+        cli,
+        ["files", str(tmp_path / "ref.nc"), str(tmp_path / "cmp.nc"), "-v", "temp", "-v", "tmep", "--no-progress"],
+        env={"COLUMNS": "200"},  # keep the table cells on one line
+    )
+
+    # The name was dropped and the run passed on temp alone.
+    assert result.exit_code == 1
+    assert "tmep" in result.output
+    assert "Not in either file" in result.output
+
+
 def test_plot_passes_the_scale_to_the_static_renderer(monkeypatch, tmp_path):
     renderer = importlib.import_module("xdiff.plotting.renderers.matplotlib_renderer")
     spec_module = importlib.import_module("xdiff.plotting.spec")

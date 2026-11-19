@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+import xdiff.conf as settings
 from xdiff.model import BoundingBox
 from xdiff.plotting.renderers.matplotlib_renderer import (
     SUPPORTED_EXTENSIONS,
@@ -437,17 +438,69 @@ def test_open_plot_source_leaves_out_text_and_cftime_variables(tmp_path):
         source.close()
 
 
-def test_build_plot_spec_leaves_out_a_text_variable_named_with_v(tmp_path):
+def test_build_plot_spec_reports_text_and_dates_named_with_v(tmp_path):
     dataset = xr.Dataset(
         {"thetao": (("lat", "lon"), np.ones((4, 5))), "label": ("lat", np.array(["a", "b", "c", "d"], dtype=str))},
-        coords={"lon": ("lon", np.arange(5.0)), "lat": ("lat", np.arange(4.0))},
+        coords={
+            "lon": ("lon", np.arange(5.0)),
+            "lat": ("lat", np.arange(4.0)),
+            "time": xr.date_range("2000-01-01", periods=2, freq="D", calendar="noleap", use_cftime=True),
+        },
     )
 
-    spec = _spec_for(tmp_path, dataset, dataset, [("label", "label"), ("thetao", "thetao")])
+    named = _spec_for(tmp_path, dataset, dataset, [("label", "label"), ("thetao", "thetao"), ("time", "time")])
+    unnamed = _spec_for(tmp_path, dataset, dataset)
 
-    # As before text was compared: left out quietly, not reported as unplottable.
+    # No difference to plot: reported when asked for with -v, left out quietly otherwise.
+    assert [variable.label for variable in named.variables] == ["thetao"]
+    assert [(skipped.label, skipped.reason) for skipped in named.skipped] == [
+        ("label", "text, no difference to plot"),
+        ("time", "dates in the noleap calendar, no difference to plot"),
+    ]
+    assert [variable.label for variable in unnamed.variables] == ["thetao"]
+    assert unnamed.skipped == []
+
+
+def test_build_plot_spec_reports_v_names_the_reference_lacks(tmp_path):
+    def dataset(*names):
+        return xr.Dataset(
+            {name: (("lat", "lon"), np.ones((4, 5))) for name in names} | {"column": ("k", np.ones(3))},
+            coords={"lon": ("lon", np.arange(5.0)), "lat": ("lat", np.arange(4.0))},
+        )
+
+    comparison = dataset("thetao", "salt", "sossheig").assign(profile=("m", np.ones(2)))
+    selection = [
+        ("thetao", "thetao"),
+        ("tmep", "tmep"),
+        ("salt", "salt"),
+        ("sst", "sossheig"),
+        ("m", "m"),  # only a dimension of the comparison file
+        ("k", "k"),
+        ("thetao", "missing"),
+    ]
+    spec = _spec_for(tmp_path, dataset("thetao"), comparison, selection)
+
+    # They used to be dropped without a word.
     assert [variable.label for variable in spec.variables] == ["thetao"]
-    assert spec.skipped == []
+    assert [(skipped.label, skipped.reason) for skipped in spec.skipped] == [
+        ("tmep", "not in either file"),
+        ("salt", "not in the reference file"),
+        ("sst -> sossheig", "not in the reference file"),
+        ("m", "not in the reference file"),
+        ("k", "a dimension without coordinate variable, no values to plot"),
+        ("thetao -> missing", "not in the comparison file"),
+    ]
+
+
+@pytest.mark.parametrize("variables", [["sst", "tmep"], settings.DEFAULT_VARIABLES_TO_CHECK])
+def test_build_plot_spec_accepts_plain_names_and_the_all_variables_sentinel(tmp_path, variables):
+    # Through the Python API: the CLI always hands over normalized pairs or None.
+    dataset = _rectilinear_dataset(np.ones((4, 5)))
+
+    spec = _spec_for(tmp_path, dataset, dataset, variables)
+
+    assert "sst" in [variable.label for variable in spec.variables]
+    assert [skipped.label for skipped in spec.skipped] == (["tmep"] if isinstance(variables, list) else [])
 
 
 def test_build_dashboard_sidebar_variable_selector_lists_all_variables():

@@ -15,7 +15,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
+import xdiff.conf as settings
 from xdiff.comparators.netcdf import (
+    _as_variable_pair,
+    _value_kind,
     crop_to_bbox,
     find_time_dims_name,
     get_dataset_variables,
@@ -197,6 +200,44 @@ def _prepare_plot_context(reference_raw, comparison_raw, variables, bbox) -> _Pl
     )
 
 
+def _unplottable_selection(reference_ds, comparison_ds, variables) -> list[SkippedVariable]:
+    """The ``-v`` names that never become candidates, each with the reason.
+
+    ``get_dataset_variables`` drops a name the reference has no variable for, and
+    ``_prepare_plot_context`` leaves out text and objects. Without ``-v`` that is quiet;
+    a name asked for is reported here, so a mistyped one cannot disappear without a
+    word. A name missing from the comparison file only is caught later, while plotting it.
+    """
+    if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
+        return []
+    skipped: list[SkippedVariable] = []
+    for item in variables:
+        reference_name, comparison_name = _as_variable_pair(item)
+        if reference_name in reference_ds.variables:
+            field = reference_ds[reference_name]
+            if not is_text_or_object(field):
+                continue
+            reason = f"{_describe_values(field)}, no difference to plot"
+        elif reference_name in reference_ds.sizes:
+            reason = "a dimension without coordinate variable, no values to plot"
+        elif comparison_name in comparison_ds.variables or comparison_name in comparison_ds.sizes:
+            reason = "not in the reference file"
+        else:
+            reason = "not in either file"
+        skipped.append(SkippedVariable(label=variable_label(reference_name, comparison_name), reason=reason))
+    return skipped
+
+
+def _describe_values(field: xr.DataArray) -> str:
+    """What a text or object variable holds, for a skip reason: ``text``, ``dates in the noleap calendar``."""
+    kind = _value_kind(field)
+    if kind in ("str", "bytes"):
+        return "text"
+    if kind is not None and kind.startswith("cftime "):
+        return f"dates in the {kind.removeprefix('cftime ')} calendar"
+    return "object values"
+
+
 def build_plot_spec(
     reference_path: Path,
     comparison_path: Path,
@@ -221,6 +262,7 @@ def build_plot_spec(
         reference_ds, comparison_ds, longitude_name, latitude_name, horizontal_dims, candidate_pairs = (
             _prepare_plot_context(reference_raw, comparison_raw, variables, bbox)
         )
+        skipped.extend(_unplottable_selection(reference_ds, comparison_ds, variables))
 
         for reference_name, comparison_name in candidate_pairs:
             label = variable_label(reference_name, comparison_name)
@@ -297,7 +339,7 @@ def _build_variable_plot(
     grid_cache: dict | None = None,
 ) -> VariablePlot:
     if comparison_name not in comparison_ds:
-        raise ValueError(f"{comparison_name!r} not present in comparison dataset")
+        raise ValueError("not in the comparison file")
 
     reference_field = reference_ds[reference_name]
     comparison_field = comparison_ds[comparison_name]
@@ -517,7 +559,7 @@ def open_plot_source(
 
         handles: list[VariableHandle] = []
         specs: list[tuple[str, str]] = []
-        skipped: list[SkippedVariable] = []
+        skipped = _unplottable_selection(reference_ds, comparison_ds, variables)
 
         for reference_name, comparison_name in candidate_pairs:
             label = variable_label(reference_name, comparison_name)
@@ -527,7 +569,7 @@ def open_plot_source(
                 skipped.append(SkippedVariable(label=label, reason=f"no horizontal dims to plot ({len(map_dims)}-D)"))
                 continue
             if comparison_name not in comparison_ds:
-                reason = f"{comparison_name!r} not present in comparison dataset"
+                reason = "not in the comparison file"
                 skipped.append(SkippedVariable(label=label, reason=reason))
                 continue
             handles.append(
