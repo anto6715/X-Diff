@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
@@ -32,7 +33,7 @@ def write_dataset(tmp_path, name, dataset):
     return path
 
 
-def test_get_dataset_variables_defaults_skip_string_like_values():
+def test_get_dataset_variables_defaults_keep_text_variables():
     dataset = xr.Dataset(
         data_vars={
             "temp": ("time", [1.0, 2.0]),
@@ -43,7 +44,7 @@ def test_get_dataset_variables_defaults_skip_string_like_values():
 
     variables = get_dataset_variables(dataset, settings.DEFAULT_VARIABLES_TO_CHECK)
 
-    assert variables == [("temp", "temp"), ("time", "time")]
+    assert variables == [("temp", "temp"), ("label", "label"), ("time", "time")]
 
 
 def test_get_dataset_variables_respects_explicit_variable_selection():
@@ -56,7 +57,7 @@ def test_get_dataset_variables_respects_explicit_variable_selection():
 
     variables = get_dataset_variables(dataset, ["label", "temp", "missing"])
 
-    assert variables == [("temp", "temp")]
+    assert variables == [("label", "label"), ("temp", "temp")]
 
 
 def test_find_time_dims_name_returns_single_time_dimension():
@@ -293,6 +294,466 @@ def test_compare_files_reads_netcdf_inputs(tmp_path):
     assert len(results) == 1
     assert results[0].variable == "temp"
     assert results[0].relative_error == 0.0
+
+
+def _compare_default(tmp_path, reference, comparison, *, last_time_step=False):
+    """Write both datasets and compare them with no variable selection (no -v)."""
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+    return compare_files(reference_path, comparison_path, None, last_time_step=last_time_step)
+
+
+def _by_variable(results):
+    return {result.variable: result for result in results}
+
+
+def _nemo_grid(longitude_shift=0.0):
+    """A 2-D field on a NEMO-like grid: nav_lon/nav_lat are auxiliary coordinates on y, x."""
+    longitudes, latitudes = np.meshgrid(np.arange(4.0), np.arange(3.0))
+    return xr.Dataset(
+        {"votemper": (("y", "x"), np.ones((3, 4)))},
+        coords={"nav_lon": (("y", "x"), longitudes + longitude_shift), "nav_lat": (("y", "x"), latitudes)},
+    )
+
+
+def test_compare_files_default_selection_covers_both_files_in_a_fixed_order(tmp_path):
+    reference = _nemo_grid().assign(gone=("y", np.zeros(3)))
+    comparison = _nemo_grid().assign(extra=("x", np.zeros(4)), level=("z", [1.0]))
+
+    results = _compare_default(tmp_path, reference, comparison)
+
+    # Shared variables (data variables, then coordinates), dimensions without a
+    # coordinate variable, then what is in one file only: the reference's, then the
+    # comparison's, each with variables before dimensions.
+    assert [result.variable for result in results] == [
+        "votemper",
+        "nav_lon",
+        "nav_lat",
+        "y",
+        "x",
+        "gone",
+        "extra",
+        "level",
+        "z",
+    ]
+
+
+def test_compare_files_fails_on_a_variable_only_in_the_comparison_file(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0]), "salt": ("x", [3.0, 4.0])})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert results["temp"].passed
+    assert not results["salt"].passed
+    assert results["salt"].description == "Only in the comparison file"
+
+
+def test_compare_files_fails_on_a_variable_only_in_the_reference_file(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0]), "salt": ("x", [3.0, 4.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert results["temp"].passed
+    assert not results["salt"].passed
+    assert results["salt"].description == "Only in the reference file"
+
+
+def test_compare_files_compares_text_variables_and_reports_a_one_sided_one(tmp_path):
+    labels = np.array(["a", "b"], dtype=str)
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0]), "label": ("x", labels), "name": ("x", labels)})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0]), "label": ("x", labels)})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert results["label"].passed
+    assert results["label"].note == "equality only"
+    assert results["name"].description == "Only in the reference file"
+
+
+@pytest.mark.parametrize("dtype", [str, bytes], ids=["str", "bytes"])
+def test_compare_files_counts_the_text_values_that_differ(tmp_path, dtype):
+    # Different longest values give different widths (<U2 vs <U3): still compared by value.
+    # bytes are written as a netCDF char array and read back as |S.
+    reference = xr.Dataset({"label": ("x", np.array(["a", "bb", "c"], dtype=dtype))})
+    comparison = xr.Dataset({"label": ("x", np.array(["a", "bbb", "d"], dtype=dtype))})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert not results["label"].passed
+    assert results["label"].description == "2 of 3 values differ"
+    assert results["label"].mask_equal  # nothing is missing on either side
+
+
+def test_compare_files_compares_text_read_back_as_object(tmp_path):
+    # A _FillValue makes xarray read text back as an object array, the same text without
+    # one as <U: the stored form differs, the values do not.
+    dataset = xr.Dataset({"label": ("x", np.array(["a", "b"], dtype=str))})
+    reference_path = tmp_path / "reference.nc"
+    dataset.to_netcdf(reference_path, encoding={"label": {"_FillValue": "zz"}})
+    comparison_path = write_dataset(tmp_path, "comparison.nc", dataset)
+
+    results = compare_files(reference_path, comparison_path, None, last_time_step=False)
+
+    assert xr.open_dataset(reference_path)["label"].dtype == object
+    assert _by_variable(results)["label"].passed
+
+
+@pytest.mark.parametrize(
+    ("comparison_values", "description", "mask_equal"),
+    [
+        (["a", "zz", "b"], "-", True),  # missing at the same place: equal
+        (["a", "zz", "c"], "1 of 3 values differ", True),
+        (["a", "x", "b"], "1 of 3 values differ", False),  # missing on one side only
+    ],
+)
+def test_compare_files_text_missing_values(tmp_path, comparison_values, description, mask_equal):
+    reference_path, comparison_path = tmp_path / "reference.nc", tmp_path / "comparison.nc"
+    for path, values in ((reference_path, ["a", "zz", "b"]), (comparison_path, comparison_values)):
+        dataset = xr.Dataset({"label": ("x", np.array(values, dtype=str))})
+        dataset.to_netcdf(path, encoding={"label": {"_FillValue": "zz"}})  # "zz" is read back as missing
+
+    result = _by_variable(compare_files(reference_path, comparison_path, None, last_time_step=False))["label"]
+
+    assert result.description == description
+    assert result.mask_equal is mask_equal
+
+
+def test_compare_files_classifies_object_text_by_its_first_present_value(tmp_path):
+    # The reference's first value is missing (NaN in an object array): its kind (str) comes
+    # from the next value, so bytes on the other side still fail as a data type mismatch.
+    reference_path = tmp_path / "reference.nc"
+    xr.Dataset({"label": ("x", np.array(["zz", "a"], dtype=str))}).to_netcdf(
+        reference_path, encoding={"label": {"_FillValue": "zz"}}
+    )
+    comparison_path = write_dataset(tmp_path, "comparison.nc", xr.Dataset({"label": ("x", np.array([b"x", b"a"]))}))
+
+    result = _by_variable(compare_files(reference_path, comparison_path, None, last_time_step=False))["label"]
+
+    assert result.description == "Data type mismatch: 'object (str)' - '|S1'"
+
+
+def test_compare_files_compares_all_missing_text_with_present_text(tmp_path):
+    # Nothing to tell the kind of an all-missing object array: it is compared by value.
+    reference_path = tmp_path / "reference.nc"
+    xr.Dataset({"label": ("x", np.array(["zz", "zz"], dtype=str))}).to_netcdf(
+        reference_path, encoding={"label": {"_FillValue": "zz"}}
+    )
+    comparison_path = write_dataset(
+        tmp_path, "comparison.nc", xr.Dataset({"label": ("x", np.array(["a", "b"], dtype=str))})
+    )
+
+    result = _by_variable(compare_files(reference_path, comparison_path, None, last_time_step=False))["label"]
+
+    assert result.description == "2 of 2 values differ"
+    assert not result.mask_equal
+
+
+def test_compare_variables_compares_other_objects_for_equality():
+    reference = make_data_array([1, (2, 3)], dtype=object)
+
+    assert compare_variables(reference, make_data_array([1, (2, 3)], dtype=object), "v", last_time_step=False).passed
+    different = compare_variables(reference, make_data_array([1, (2, 4)], dtype=object), "v", last_time_step=False)
+    assert different.description == "1 of 2 values differ"
+
+
+@pytest.mark.parametrize(("comparison_dtype", "passed"), [(str, True), (bytes, False)], ids=["str", "bytes"])
+def test_compare_files_text_with_a_bounding_box(tmp_path, comparison_dtype, passed):
+    # A curvilinear crop masks with where(), which turns text into object arrays on both
+    # sides: str must still match str, and bytes must still fail against str.
+    labels = np.full((3, 4), "a")
+    reference = _nemo_grid().assign(label=(("y", "x"), labels.astype(str)))
+    comparison = _nemo_grid().assign(label=(("y", "x"), labels.astype(comparison_dtype)))
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+    box = BoundingBox(lon_min=0.5, lon_max=2.5, lat_min=0.5, lat_max=1.5)
+
+    result = _by_variable(compare_files(reference_path, comparison_path, None, last_time_step=False, bbox=box))["label"]
+
+    assert result.passed is passed
+    if not passed:
+        assert result.description == "Data type mismatch: 'object (str)' - 'object (bytes)'"
+
+
+def test_compare_files_compares_a_text_variable_named_with_v(tmp_path):
+    reference = xr.Dataset({"label": ("x", np.array(["a", "b"], dtype=str))})
+    comparison = xr.Dataset({"label": ("x", np.array(["a", "c"], dtype=str))})
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+
+    results = compare_files(reference_path, comparison_path, [("label", "label")], last_time_step=False)
+
+    assert [(result.variable, result.description) for result in results] == [("label", "1 of 2 values differ")]
+
+
+def test_compare_variables_fails_on_bytes_against_str():
+    reference = make_data_array([b"a", b"b"])
+    comparison = make_data_array(["a", "b"])
+
+    with pytest.raises(ValueError, match="Data type mismatch"):
+        compare_variables(reference, comparison, "label", last_time_step=False)
+
+
+def test_compare_variables_counts_a_value_missing_on_both_sides_as_equal():
+    reference = make_data_array(["a", None, np.nan], dtype=object)
+    same_values = make_data_array(["a", None, None], dtype=object)
+    other_values = make_data_array(["a", "b", None], dtype=object)
+
+    same = compare_variables(reference, same_values, "label", last_time_step=False)
+    different = compare_variables(reference, other_values, "label", last_time_step=False)
+
+    assert same.passed
+    assert not different.passed
+    assert different.description == "1 of 3 values differ"
+    assert not different.mask_equal
+
+
+def _noleap_run(start="2000-01-01", steps=2, calendar="noleap"):
+    """A run whose time axis uses a non-standard calendar: xarray decodes it to cftime dates."""
+    times = xr.date_range(start, periods=steps, freq="D", calendar=calendar, use_cftime=True)
+    return xr.Dataset(
+        {"temp": (("time", "x"), np.arange(2.0 * steps).reshape(steps, 2) - 2.0 * steps)},
+        coords={"time": times, "time_centered": ("time", times + pd.Timedelta(hours=12))},
+    )
+
+
+def test_compare_files_compares_cftime_dates(tmp_path):
+    same = _by_variable(_compare_default(tmp_path, _noleap_run(), _noleap_run()))
+    later = _by_variable(_compare_default(tmp_path, _noleap_run(), _noleap_run(start="2000-01-05")))
+
+    assert same["time"].passed and same["time_centered"].passed
+    assert same["time"].note == "equality only"
+    assert later["time"].description == "2 of 2 values differ"
+    assert later["time_centered"].description == "2 of 2 values differ"
+
+
+def test_compare_files_fails_on_cftime_dates_in_different_calendars(tmp_path):
+    results = _by_variable(_compare_default(tmp_path, _noleap_run(), _noleap_run(calendar="360_day")))
+
+    assert results["time"].description == "Data type mismatch: 'object (cftime noleap)' - 'object (cftime 360_day)'"
+
+
+@pytest.mark.parametrize("last_time_step", [False, True])
+def test_compare_files_fails_on_cftime_dates_against_datetime64(tmp_path, last_time_step):
+    # A calendar change between the files (noleap -> standard) is reported, also under
+    # --last-time-step, which only leaves out a time axis of the same kind on both sides.
+    standard = _noleap_run(calendar="standard").assign_coords(
+        time=pd.to_datetime(["2000-01-01", "2000-01-02"]),
+        time_centered=("time", pd.to_datetime(["2000-01-01 12:00", "2000-01-02 12:00"])),
+    )
+
+    results = _by_variable(_compare_default(tmp_path, _noleap_run(), standard, last_time_step=last_time_step))
+
+    assert results["time"].description == "Data type mismatch: 'object (cftime noleap)' - 'datetime64[ns]'"
+
+
+def test_compare_files_last_time_step_skips_cftime_time_axes(tmp_path):
+    # Runs of different lengths with the same last step, on a noleap calendar.
+    reference_path = write_dataset(tmp_path, "reference.nc", _noleap_run(start="2000-01-02", steps=2))
+    comparison_path = write_dataset(tmp_path, "comparison.nc", _noleap_run(start="2000-01-01", steps=3))
+
+    by_default = compare_files(reference_path, comparison_path, None, last_time_step=True)
+    explicit = compare_files(reference_path, comparison_path, [("time", "time")], last_time_step=True)
+
+    assert [result.variable for result in by_default] == ["temp", "x"]
+    assert all(result.passed for result in by_default)
+    assert "last time step" in explicit[0].description
+
+
+def test_compare_files_last_time_step_compares_text_along_time(tmp_path):
+    # Text along time, read back as an object array (it has a _FillValue): it is not a
+    # time axis, so --last-time-step compares its last step instead of leaving it out.
+    reference_path, comparison_path = tmp_path / "reference.nc", tmp_path / "comparison.nc"
+    for path, values in ((reference_path, ["a", "b"]), (comparison_path, ["a", "c"])):
+        dataset = xr.Dataset({"event": ("time", np.array(values, dtype=str))})
+        dataset.to_netcdf(path, encoding={"event": {"_FillValue": "zz"}})
+
+    results = _by_variable(compare_files(reference_path, comparison_path, None, last_time_step=True))
+
+    assert results["event"].description == "1 of 1 values differ"
+
+
+@pytest.mark.parametrize("text_side", ["reference", "comparison"])
+def test_compare_files_fails_on_a_variable_that_is_text_in_one_file_only(tmp_path, text_side):
+    text = xr.Dataset({"flag": ("x", np.array(["a", "b"], dtype=str))})
+    numbers = xr.Dataset({"flag": ("x", [1.0, 2.0])})
+    reference, comparison = (text, numbers) if text_side == "reference" else (numbers, text)
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    # Skipped only when it is text in both files; swapping the files gives the same verdict.
+    assert not results["flag"].passed
+    assert "Data type mismatch" in results["flag"].description
+
+
+def test_compare_files_matches_a_data_variable_with_a_coordinate_of_the_same_name(tmp_path):
+    # The same values stored as a data variable in one file and as a coordinate in the
+    # other: one row, compared by value, not two one-sided rows.
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0]), "lon": ("x", [10.0, 20.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0])}, coords={"lon": ("x", [10.0, 20.0])})
+
+    results = _compare_default(tmp_path, reference, comparison)
+
+    assert [result.variable for result in results] == ["temp", "lon", "x"]
+    assert all(result.passed for result in results)
+
+
+def test_compare_files_compares_a_scalar_coordinate(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0])}, coords={"depth": 5.0})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0])}, coords={"depth": 6.0})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert results["temp"].passed
+    assert not results["depth"].passed
+    assert results["depth"].max_diff == -1.0
+
+
+def test_compare_files_detects_a_shifted_auxiliary_coordinate(tmp_path):
+    # NEMO layout: xarray decodes 2-D nav_lon/nav_lat as coordinates, not data variables.
+    results = _by_variable(_compare_default(tmp_path, _nemo_grid(), _nemo_grid(longitude_shift=5.0)))
+
+    assert results["votemper"].passed
+    assert results["nav_lat"].passed
+    assert not results["nav_lon"].passed
+    assert results["nav_lon"].min_diff == -5.0
+
+
+def test_compare_files_compares_the_size_of_a_dimension_without_coordinate(tmp_path):
+    results = _by_variable(_compare_default(tmp_path, _nemo_grid(), _nemo_grid()))
+
+    for dimension in ("y", "x"):
+        assert results[dimension].passed
+        assert results[dimension].note == "size only"
+
+
+def test_compare_files_fails_on_a_dimension_size_mismatch(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0, 3.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0, 3.0, 4.0])})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert not results["x"].passed
+    assert results["x"].description == "Dimension size mismatch: 3 - 4"
+
+
+def test_compare_files_fails_on_a_renamed_dimension_without_coordinate(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"temp": ("i", [1.0, 2.0])})
+
+    results = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    # The values match (a dimension name mismatch alone does not fail a variable), but
+    # the files are laid out differently.
+    assert results["temp"].passed
+    assert results["x"].description == "Dimension only in the reference file"
+    assert results["i"].description == "Dimension only in the comparison file"
+
+
+@pytest.mark.parametrize("dimension_side", ["reference", "comparison"])
+def test_compare_files_tells_a_variable_from_a_dimension_of_the_same_name(tmp_path, dimension_side):
+    # A scalar variable "depth" in one file, a dimension "depth" without a coordinate
+    # variable in the other: each row says what it is, so the two do not read as a
+    # contradiction.
+    with_variable = xr.Dataset({"temp": ("x", [1.0, 2.0]), "depth": 5.0})
+    with_dimension = xr.Dataset({"temp": ("x", [1.0, 2.0]), "column": ("depth", [1.0])})
+    if dimension_side == "reference":
+        reference, comparison, variable_side = with_dimension, with_variable, "comparison"
+    else:
+        reference, comparison, variable_side = with_variable, with_dimension, "reference"
+
+    results = _compare_default(tmp_path, reference, comparison)
+
+    depth_rows = sorted(result.description for result in results if result.variable == "depth")
+    assert depth_rows == sorted([f"Only in the {variable_side} file", f"Dimension only in the {dimension_side} file"])
+
+
+def test_compare_files_reports_a_coordinate_variable_only_in_the_comparison_file(tmp_path):
+    # Both files have dimension x, but only the comparison has a coordinate variable for
+    # it: one row for that variable, no size row.
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0])}, coords={"x": [10.0, 20.0]})
+
+    results = _compare_default(tmp_path, reference, comparison)
+
+    assert [(result.variable, result.description) for result in results] == [
+        ("temp", "-"),
+        ("x", "Only in the comparison file"),
+    ]
+
+
+def test_compare_files_explicit_selection_ignores_names_outside_it(tmp_path):
+    reference = xr.Dataset({"temp": ("x", [1.0, 2.0])})
+    comparison = xr.Dataset({"temp": ("x", [1.0, 2.0]), "salt": ("x", [3.0, 4.0])})
+    reference_path = write_dataset(tmp_path, "reference.nc", reference)
+    comparison_path = write_dataset(tmp_path, "comparison.nc", comparison)
+
+    results = compare_files(reference_path, comparison_path, [("temp", "temp")], last_time_step=False)
+
+    assert [result.variable for result in results] == ["temp"]
+    assert results[0].passed
+
+
+def _run_with_time_axes(steps):
+    """The last ``steps`` days of a run: the same last step whatever ``steps`` is."""
+    times = np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]")[-steps:]
+    return xr.Dataset(
+        {"temp": (("time", "x"), np.arange(6.0).reshape(3, 2)[-steps:])},
+        coords={
+            "time": times,
+            "time_centered": ("time", times + np.timedelta64(12, "h")),
+            "nav_lon": ("x", [10.0, 20.0]),
+        },
+    )
+
+
+def test_compare_files_last_time_step_skips_auxiliary_time_coordinates_by_default(tmp_path):
+    # Runs of different lengths: the time axes differ, the last step does not.
+    results = _compare_default(tmp_path, _run_with_time_axes(2), _run_with_time_axes(3), last_time_step=True)
+
+    # Only the datetime time axes are left out; other coordinates are still compared.
+    assert [result.variable for result in results] == ["temp", "nav_lon", "x"]
+    assert all(result.passed for result in results)
+
+
+def test_compare_files_default_selection_with_a_bounding_box(tmp_path):
+    longitudes, latitudes = np.meshgrid(np.arange(-10.0, 11.0), np.arange(-10.0, 11.0))
+
+    def dataset(latitude_shift):
+        return xr.Dataset(
+            {"sst": (("y", "x"), longitudes + latitudes)},
+            coords={"nav_lon": (("y", "x"), longitudes), "nav_lat": (("y", "x"), latitudes + latitude_shift)},
+        )
+
+    # Edges between grid points, so the small shift below keeps the same points inside.
+    box = BoundingBox(lon_min=-5.5, lon_max=5.5, lat_min=-5.5, lat_max=5.5)
+    reference_path = write_dataset(tmp_path, "reference.nc", dataset(0.0))
+    same_path = write_dataset(tmp_path, "same.nc", dataset(0.0))
+    shifted_path = write_dataset(tmp_path, "shifted.nc", dataset(1e-3))
+
+    same = _by_variable(compare_files(reference_path, same_path, None, last_time_step=False, bbox=box))
+    shifted = _by_variable(compare_files(reference_path, shifted_path, None, last_time_step=False, bbox=box))
+
+    # The coordinates are cropped with the fields, and a small latitude shift that keeps
+    # the same points inside the box is still detected.
+    assert list(same) == ["sst", "nav_lon", "nav_lat", "y", "x"]
+    assert all(result.passed for result in same.values())
+    assert not shifted["nav_lat"].passed
+    assert shifted["nav_lon"].passed
+
+
+def test_compare_files_last_time_step_ignores_the_size_of_a_time_dimension_without_coordinate(tmp_path):
+    # Same last step, different number of steps: what --last-time-step is for.
+    reference = xr.Dataset({"temp": (("time", "x"), [[0.0, 0.0], [1.0, 2.0]])})
+    comparison = xr.Dataset({"temp": (("time", "x"), [[5.0, 5.0], [0.0, 0.0], [1.0, 2.0]])})
+
+    with_last_step = _by_variable(_compare_default(tmp_path, reference, comparison, last_time_step=True))
+    without_last_step = _by_variable(_compare_default(tmp_path, reference, comparison))
+
+    assert "time" not in with_last_step
+    assert all(result.passed for result in with_last_step.values())
+    assert without_last_step["time"].description == "Dimension size mismatch: 2 - 3"
 
 
 def _dataset_with_time_coordinate():

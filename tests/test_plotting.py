@@ -414,6 +414,42 @@ def test_open_plot_source_skips_bounds_and_coordinate_variables(tmp_path):
         source.close()
 
 
+def test_open_plot_source_leaves_out_text_and_cftime_variables(tmp_path):
+    from xdiff.plotting.spec import open_plot_source
+
+    times = xr.date_range("2000-01-01", periods=2, freq="D", calendar="noleap", use_cftime=True)
+    dataset = xr.Dataset(
+        {
+            "thetao": (("time", "lat", "lon"), np.ones((2, 4, 5))),
+            "label": ("lat", np.array(["a", "b", "c", "d"], dtype=str)),
+            "time_centered": ("time", times),
+        },
+        coords={"lon": ("lon", np.arange(5.0)), "lat": ("lat", np.arange(4.0)), "time": times},
+    )
+    ref = _write(tmp_path / "ref.nc", dataset)
+    cmp = _write(tmp_path / "cmp.nc", dataset)
+
+    # The comparison now compares text and cftime dates; the plot list must not change.
+    source = open_plot_source(ref, cmp, None, last_time_step=False, bbox=None)
+    try:
+        assert [handle.label for handle in source.variables] == ["thetao"]
+    finally:
+        source.close()
+
+
+def test_build_plot_spec_leaves_out_a_text_variable_named_with_v(tmp_path):
+    dataset = xr.Dataset(
+        {"thetao": (("lat", "lon"), np.ones((4, 5))), "label": ("lat", np.array(["a", "b", "c", "d"], dtype=str))},
+        coords={"lon": ("lon", np.arange(5.0)), "lat": ("lat", np.arange(4.0))},
+    )
+
+    spec = _spec_for(tmp_path, dataset, dataset, [("label", "label"), ("thetao", "thetao")])
+
+    # As before text was compared: left out quietly, not reported as unplottable.
+    assert [variable.label for variable in spec.variables] == ["thetao"]
+    assert spec.skipped == []
+
+
 def test_build_dashboard_sidebar_variable_selector_lists_all_variables():
     import panel as pn
 

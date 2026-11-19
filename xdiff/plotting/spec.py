@@ -19,6 +19,7 @@ from xdiff.comparators.netcdf import (
     crop_to_bbox,
     find_time_dims_name,
     get_dataset_variables,
+    is_text_or_object,
     load_xarray,
     locate_horizontal_coords,
     variable_label,
@@ -179,6 +180,8 @@ def _prepare_plot_context(reference_raw, comparison_raw, variables, bbox) -> _Pl
     horizontal_dims = _horizontal_dims(reference_ds, longitude_name, latitude_name)
 
     candidate_pairs = get_dataset_variables(reference_ds, variables)
+    # Text and other objects (cftime dates) have no difference field to plot.
+    candidate_pairs = [pair for pair in candidate_pairs if not is_text_or_object(reference_ds[pair[0]])]
     if variables is None:
         # "All variables" also returns dims/coords (lon/lat/time); plotting those as
         # difference fields is meaningless, so keep only the actual data variables.

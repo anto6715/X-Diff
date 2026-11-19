@@ -374,6 +374,23 @@ def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
     assert "PASSED" not in result.output
 
 
+def test_files_fails_on_a_variable_only_in_the_comparison_file(tmp_path):
+    import xarray as xr
+
+    xr.Dataset({"temp": ("x", [1.0, 2.0])}).to_netcdf(tmp_path / "ref.nc")
+    xr.Dataset({"temp": ("x", [1.0, 2.0]), "salt": ("x", [3.0, 4.0])}).to_netcdf(tmp_path / "cmp.nc")
+
+    result = CliRunner().invoke(
+        cli,
+        ["files", str(tmp_path / "ref.nc"), str(tmp_path / "cmp.nc"), "--no-progress"],
+        env={"COLUMNS": "200"},  # keep the table cells on one line
+    )
+
+    # The variable the reference lacks used to go unnoticed, and the run exited 0.
+    assert result.exit_code == 1
+    assert "Only in the comparison file" in result.output
+
+
 def test_plot_passes_the_scale_to_the_static_renderer(monkeypatch, tmp_path):
     renderer = importlib.import_module("xdiff.plotting.renderers.matplotlib_renderer")
     spec_module = importlib.import_module("xdiff.plotting.spec")

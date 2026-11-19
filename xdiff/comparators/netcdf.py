@@ -78,18 +78,175 @@ def compare_files(
         if bbox is not None:
             dataset1 = crop_to_bbox(dataset1, bbox)
             dataset2 = crop_to_bbox(dataset2, bbox)
-        variables_to_compare = get_dataset_variables(dataset1, variables)
-        if last_time_step and variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
-            # The default selection includes the time coordinate, which cannot be compared
-            # on a single step. Leave it out so the option works without -v; asking for it
-            # explicitly (-v time) still reports the error.
-            variables_to_compare = _without_time_axes(dataset1, dataset2, variables_to_compare)
+        if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
+            return compare_all_variables(dataset1, dataset2, last_time_step=last_time_step)
         return compare_datasets(
             dataset1,
             dataset2,
-            variables_to_compare,
+            get_dataset_variables(dataset1, variables),
             last_time_step=last_time_step,
         )
+
+
+ONLY_IN_REFERENCE = "Only in the reference file"
+ONLY_IN_COMPARISON = "Only in the comparison file"
+# A dimension says so: the same name can be a variable in one file and a dimension in the other.
+DIMENSION_ONLY_IN_REFERENCE = "Dimension only in the reference file"
+DIMENSION_ONLY_IN_COMPARISON = "Dimension only in the comparison file"
+# Kept short: it shows in the DESCR column of every passing row of such a dimension.
+DIMENSION_SIZE_ONLY = "size only"
+
+
+def compare_all_variables(
+    reference: xr.Dataset,
+    comparison: xr.Dataset,
+    *,
+    last_time_step: bool,
+) -> list[CompareResult]:
+    """Compare everything in either dataset: the selection used when no variable is given.
+
+    Rows come in this order:
+
+    1. every variable of the reference (data variables, then dimension and auxiliary
+       coordinates) that the comparison also has, compared by value (text and cftime
+       dates for equality, see ``compare_variables``);
+    2. every dimension without a coordinate variable in both datasets, compared by size;
+    3. every variable, then every dimension without a coordinate variable, found in only
+       one of the datasets, as a failure that names the side it is in.
+
+    With ``last_time_step``, the 1-D time axes (datetime64 or cftime) and the size of a
+    time dimension without a coordinate variable are left out: each file is reduced to
+    its last step, whatever its length.
+    """
+    pairs: list[tuple[str, str]] = []
+    one_sided: list[CompareResult] = []
+    for name in _variable_names(reference):
+        if name in comparison.variables:
+            pairs.append((name, name))
+        else:
+            one_sided.append(CompareResult(variable=name, description=ONLY_IN_REFERENCE))
+    if last_time_step:
+        # The time coordinates cannot be compared on a single step. Leave them out so the
+        # option works without -v; asking for one explicitly (-v time) still reports the error.
+        pairs = _without_time_axes(reference, comparison, pairs)
+
+    results = compare_datasets(reference, comparison, pairs, last_time_step=last_time_step)
+
+    for name in _dimensions_without_coordinate(reference):
+        if name not in comparison.sizes:
+            one_sided.append(CompareResult(variable=name, description=DIMENSION_ONLY_IN_REFERENCE))
+        elif name in comparison.variables:
+            continue  # the comparison has a coordinate variable for it, reported below as one-sided
+        elif last_time_step and find_time_dims_name([name]) is not None:
+            # --last-time-step compares one step of each file, whatever their lengths.
+            logger.debug("Skipping the size of %s: only the last time step is compared", name)
+        else:
+            results.append(compare_dimension_sizes(name, reference.sizes[name], comparison.sizes[name]))
+
+    for name in _variable_names(comparison):
+        if name not in reference.variables:
+            one_sided.append(CompareResult(variable=name, description=ONLY_IN_COMPARISON))
+    for name in _dimensions_without_coordinate(comparison):
+        if name not in reference.sizes:
+            one_sided.append(CompareResult(variable=name, description=DIMENSION_ONLY_IN_COMPARISON))
+
+    return results + one_sided
+
+
+def _variable_names(dataset: xr.Dataset) -> list:
+    """Data variables, then coordinates (dimension and auxiliary), in file order."""
+    return list(dataset.data_vars) + list(dataset.coords)
+
+
+def _dimensions_without_coordinate(dataset: xr.Dataset) -> list:
+    return [name for name in dataset.sizes if name not in dataset.variables]
+
+
+def compare_dimension_sizes(name: str, reference_size: int, comparison_size: int) -> CompareResult:
+    """Compare a dimension that has no coordinate variable: its size is all there is."""
+    if reference_size != comparison_size:
+        return CompareResult(
+            variable=name,
+            description=f"Dimension size mismatch: {reference_size} - {comparison_size}",
+        )
+    return CompareResult(
+        relative_error=0.0,
+        min_diff=0.0,
+        max_diff=0.0,
+        mask_equal=True,
+        variable=name,
+        note=DIMENSION_SIZE_ONLY,
+    )
+
+
+def is_text_or_object(field: xr.DataArray) -> bool:
+    """Strings, bytes or Python objects (such as cftime dates): values with no numeric difference."""
+    return field.dtype.kind in ("U", "S", "O")
+
+
+def _value_kind(field: xr.DataArray) -> str | None:
+    """What a text or object array holds: ``str``, ``bytes``, ``cftime <calendar>`` or ``object``.
+
+    None for any other dtype, without loading the values. xarray reads text as an object
+    array when it has a ``_FillValue`` or after ``--bbox`` masked it, so an object array is
+    classified by its first value that is not missing; ``object`` when all are missing or
+    the value is of another type.
+    """
+    kind = field.dtype.kind
+    if kind == "U":
+        return "str"
+    if kind == "S":
+        return "bytes"
+    if kind != "O":
+        return None
+    from pandas import isnull  # an xarray dependency; imported here to keep startup light
+
+    values = np.asarray(field.values).ravel()
+    present = np.flatnonzero(~isnull(values))
+    if present.size == 0:
+        return "object"
+    sample = values[present[0]]
+    if isinstance(sample, str):
+        return "str"
+    if isinstance(sample, bytes):
+        return "bytes"
+    # Recognized by module rather than isinstance: cftime is not a declared dependency (it
+    # comes with netCDF4), and xarray only produces these objects when it is installed.
+    if type(sample).__module__.split(".")[0] == "cftime":
+        return f"cftime {sample.calendar}"
+    return "object"
+
+
+# Kept short, like DIMENSION_SIZE_ONLY: no numeric difference was computed for the row.
+EQUALITY_ONLY = "equality only"
+
+
+def compare_for_equality(reference_values: np.ndarray, comparison_values: np.ndarray, variable: str) -> CompareResult:
+    """Compare values that have no numeric difference (text, cftime dates) one by one.
+
+    A value missing on both sides (None or NaN in an object array) counts as equal. The
+    two arrays must have the same shape.
+    """
+    from pandas import isnull  # an xarray dependency; imported here to keep startup light
+
+    reference_missing = isnull(reference_values)
+    comparison_missing = isnull(comparison_values)
+    equal = np.asarray((reference_values == comparison_values) | (reference_missing & comparison_missing))
+    differing = int(np.count_nonzero(~equal))
+    if differing:
+        return CompareResult(
+            mask_equal=bool(np.array_equal(reference_missing, comparison_missing)),
+            variable=variable,
+            description=f"{differing} of {equal.size} values differ",
+        )
+    return CompareResult(
+        relative_error=0.0,
+        min_diff=0.0,
+        max_diff=0.0,
+        mask_equal=True,
+        variable=variable,
+        note=EQUALITY_ONLY,
+    )
 
 
 def _without_time_axes(
@@ -99,10 +256,11 @@ def _without_time_axes(
 ) -> list[tuple[str, str]]:
     """Drop the pairs that ``compare_variables`` would reject under ``--last-time-step``.
 
-    Only a pair that is a datetime time axis on *both* sides is dropped: that is exactly
-    the case that raises ``LastTimestepTimeCheckException``. A time axis that differs
-    between the files (other calendar, undecoded units, missing) stays in the selection
-    so the mismatch is still reported.
+    Only a pair that is a time axis of the same kind on *both* sides (datetime64, or cftime
+    dates in one calendar) is dropped: that is exactly the case that raises
+    ``LastTimestepTimeCheckException``. A time axis that differs between the files (other
+    calendar, undecoded units, missing) stays in the selection so the mismatch is still
+    reported.
     """
     kept: list[tuple[str, str]] = []
     for reference_name, comparison_name in pairs:
@@ -269,6 +427,10 @@ def compare_variables(
 
     validate_matching_metadata(ref_da, cmp_da)
 
+    if is_text_or_object(ref_da):
+        # Both sides hold text or objects (the data type check above makes sure).
+        return compare_for_equality(ref_da.values, cmp_da.values, variable)
+
     reference_values = ref_da.values
     comparison_values = cmp_da.values
     reference_masked = ref_da.to_masked_array()
@@ -380,22 +542,31 @@ def is_time_dtype(dtype) -> bool:
 
 
 def is_time_coordinate_variable(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> bool:
-    """True when both sides are a 1-D datetime time axis (the time coordinate).
+    """True when both sides are a 1-D time axis (the time coordinate) of the same kind.
 
-    Detection is by dimension shape and dtype rather than by name, so it also
-    holds for a mapped pair whose time axes are named differently (e.g. a
-    ``time=time2`` mapping), where a name-based check would miss it.
+    The same kind is datetime64 on both sides, or cftime dates (what a non-standard
+    calendar decodes to) in the same calendar. Detection is by dimension shape and
+    values rather than by name, so it also holds for a mapped pair whose time axes are
+    named differently (e.g. a ``time=time2`` mapping), where a name-based check would
+    miss it.
     """
-    return _is_time_axis(ref_da) and _is_time_axis(cmp_da)
+    reference_kind = _time_axis_kind(ref_da)
+    return reference_kind is not None and reference_kind == _time_axis_kind(cmp_da)
 
 
-def _is_time_axis(da: xr.DataArray) -> bool:
+def _time_axis_kind(da: xr.DataArray) -> str | None:
+    """The kind of a 1-D time axis: its datetime64/timedelta64 dtype kind, or ``cftime <calendar>``."""
     if da.ndim != 1:
         # Only a 1-D variable can be an axis. Returning early also keeps a variable with
         # several time-like dimensions from raising here, outside the per-variable handling.
-        return False
+        return None
     time_dimension = find_time_dims_name(da.dims)
-    return time_dimension is not None and da.dims == (time_dimension,) and is_time_dtype(da.dtype)
+    if time_dimension is None or da.dims != (time_dimension,):
+        return None
+    if is_time_dtype(da.dtype):
+        return da.dtype.kind
+    value_kind = _value_kind(da)
+    return value_kind if value_kind is not None and value_kind.startswith("cftime") else None
 
 
 def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> None:
@@ -409,8 +580,11 @@ def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> No
     if ref_da.shape != cmp_da.shape:
         raise ValueError(f"Dimension size mismatch: '{ref_da.shape}' - '{cmp_da.shape}'")
 
-    if np.dtype(ref_da.dtype) != np.dtype(cmp_da.dtype):
-        raise ValueError(f"Data type mismatch: '{ref_da.dtype}' - '{cmp_da.dtype}'")
+    reference_kind, comparison_kind = _value_kind(ref_da), _value_kind(cmp_da)
+    if not _same_data_type(ref_da.dtype, cmp_da.dtype, reference_kind, comparison_kind):
+        reference_type = _describe_data_type(ref_da.dtype, reference_kind)
+        comparison_type = _describe_data_type(cmp_da.dtype, comparison_kind)
+        raise ValueError(f"Data type mismatch: '{reference_type}' - '{comparison_type}'")
 
     reference_coordinates = set(ref_da.coords)
     comparison_coordinates = set(cmp_da.coords)
@@ -447,16 +621,43 @@ def validate_matching_metadata(ref_da: xr.DataArray, cmp_da: xr.DataArray) -> No
             logger.debug("Coordinate values mismatch for '%s'", coordinate_name)
 
 
+def _same_data_type(reference_dtype, comparison_dtype, reference_kind, comparison_kind) -> bool:
+    """Equal numeric dtypes, or text and objects holding the same kind of value (``_value_kind``).
+
+    For text the dtype says how values are stored, not what they are: xarray sizes vlen
+    strings to their longest value and char arrays to their string-length dimension, and
+    reads text with a ``_FillValue`` as an object array. So ``<U3``, ``<U5`` and an object
+    array of str all compare as str, and ``compare_for_equality`` reports what differs.
+    Bytes against str, and cftime dates in two calendars, still differ. An object array
+    with no value to classify (all missing) is compared whatever the other side holds.
+    """
+    if reference_kind is None or comparison_kind is None:
+        return np.dtype(reference_dtype) == np.dtype(comparison_dtype)
+    return reference_kind == comparison_kind or "object" in (reference_kind, comparison_kind)
+
+
+def _describe_data_type(dtype, value_kind: str | None) -> str:
+    """The dtype, plus what an object array holds: ``object (cftime noleap)``."""
+    if np.dtype(dtype).kind == "O" and value_kind is not None:
+        return f"object ({value_kind})"
+    return str(dtype)
+
+
 def get_dataset_variables(
     dataset: xr.Dataset,
     variables: tuple[tuple[str, str], ...] | list | object | None,
 ) -> list[tuple[str, str]]:
     """Select comparable (reference_name, comparison_name) variable pairs.
 
-    Filtering (presence + non-string dtype) is done against the reference
-    dataset; the comparison-side name is validated later in ``compare_datasets``
-    against the comparison dataset. When no selection is given, defaults to every
-    data variable and dimension, compared under the same name on both sides.
+    A name missing from the reference dataset is dropped; the comparison-side name is
+    validated later in ``compare_datasets`` against the comparison dataset. When no
+    selection is given, defaults to every data variable and dimension, compared under
+    the same name on both sides.
+
+    ``compare_files`` uses this for a ``-v`` selection only; with no selection it calls
+    ``compare_all_variables``, which also covers auxiliary coordinates and whatever is
+    in the comparison dataset alone. ``xdiff plot`` builds its variable list from this,
+    then leaves out text and object variables, which have no difference to plot.
     """
     if variables in (None, settings.DEFAULT_VARIABLES_TO_CHECK):
         pairs = [(name, name) for name in list(dataset.data_vars) + list(dataset.dims)]
@@ -466,11 +667,6 @@ def get_dataset_variables(
     selected_variables: list[tuple[str, str]] = []
     for reference_name, comparison_name in pairs:
         if reference_name not in dataset:
-            continue
-
-        dtype_kind = dataset[reference_name].dtype.kind
-        if dtype_kind in ("U", "S", "O", "a"):
-            logger.debug("Skipping variable %s due to datatype %s", reference_name, dtype_kind)
             continue
 
         selected_variables.append((reference_name, comparison_name))
