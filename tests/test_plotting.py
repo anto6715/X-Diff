@@ -105,6 +105,23 @@ def test_build_plot_spec_integer_safe_difference(tmp_path):
     assert variable.diff_extreme == pytest.approx(2.0)
 
 
+def test_build_plot_spec_draws_booleans_as_a_signed_difference(tmp_path):
+    # numpy refuses to subtract booleans; the plot shows -1/0/1 where the flags differ.
+    reference_flags = np.zeros((3, 3), dtype=bool)
+    reference_flags[0, 0] = True
+    comparison_flags = np.zeros((3, 3), dtype=bool)
+    comparison_flags[2, 2] = True
+
+    spec = _spec_for(tmp_path, _rectilinear_dataset(reference_flags), _rectilinear_dataset(comparison_flags))
+
+    assert spec.skipped == []
+    difference = spec.variables[0].difference
+    assert np.issubdtype(difference.dtype, np.floating)
+    expected = np.zeros((3, 3))
+    expected[0, 0], expected[2, 2] = 1.0, -1.0
+    np.testing.assert_array_equal(difference, expected)
+
+
 def test_build_plot_spec_variable_mapping(tmp_path):
     reference = _rectilinear_dataset(np.full((4, 4), 5.0), name="thetao")
     comparison = _rectilinear_dataset(np.full((4, 4), 4.0), name="votemper")

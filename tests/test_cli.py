@@ -430,3 +430,21 @@ def test_plot_passes_the_scale_to_the_static_renderer(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert captured == {"scale": "log"}
+
+
+def test_files_passes_on_identical_boolean_variables(tmp_path):
+    import xarray as xr
+
+    dataset = xr.Dataset({"flag": ("x", [True, False, True])})
+    dataset.to_netcdf(tmp_path / "ref.nc")
+    dataset.to_netcdf(tmp_path / "cmp.nc")
+
+    result = CliRunner().invoke(
+        cli,
+        ["files", str(tmp_path / "ref.nc"), str(tmp_path / "cmp.nc"), "--no-progress"],
+        env={"COLUMNS": "200"},  # keep the table cells on one line
+    )
+
+    # They used to fail with numpy's "boolean subtract is not supported", exit 1.
+    assert result.exit_code == 0
+    assert "equality only" in result.output

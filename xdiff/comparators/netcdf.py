@@ -222,7 +222,7 @@ EQUALITY_ONLY = "equality only"
 
 
 def compare_for_equality(reference_values: np.ndarray, comparison_values: np.ndarray, variable: str) -> CompareResult:
-    """Compare values that have no numeric difference (text, cftime dates) one by one.
+    """Compare values that have no numeric difference (text, cftime dates, booleans) one by one.
 
     A value missing on both sides (None or NaN in an object array) counts as equal. The
     two arrays must have the same shape.
@@ -485,8 +485,9 @@ def compare_variables(
 
     validate_matching_metadata(ref_da, cmp_da)
 
-    if is_text_or_object(ref_da):
-        # Both sides hold text or objects (the data type check above makes sure).
+    if is_text_or_object(ref_da) or ref_da.dtype == np.bool_:
+        # Both sides hold text or objects, or both booleans (the data type check above makes
+        # sure). Neither has a numeric difference, and numpy refuses to subtract booleans.
         return compare_for_equality(ref_da.values, cmp_da.values, variable)
 
     reference_values = ref_da.values

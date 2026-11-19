@@ -210,6 +210,32 @@ def test_compare_variables_does_not_wrap_around_on_unsigned_integers():
     assert result.relative_error == pytest.approx(2 / 12)
 
 
+@pytest.mark.parametrize(
+    ("comparison_values", "passed", "description", "note"),
+    [
+        ([True, False, True], True, "-", "equality only"),
+        ([True, True, True], False, "1 of 3 values differ", ""),
+    ],
+)
+def test_compare_variables_compares_booleans_for_equality(comparison_values, passed, description, note):
+    # numpy refuses to subtract booleans, so identical flags used to fail with its error.
+    reference = make_data_array([True, False, True], dtype=bool)
+    comparison = make_data_array(comparison_values, dtype=bool)
+
+    result = compare_variables(reference, comparison, "flag", last_time_step=False)
+
+    assert (result.passed, result.description, result.note) == (passed, description, note)
+    assert result.mask_equal
+
+
+def test_compare_variables_fails_on_booleans_against_integers():
+    reference = make_data_array([True, False], dtype=bool)
+    comparison = make_data_array([1, 0], dtype="int8")
+
+    with pytest.raises(ValueError, match="bool"):
+        compare_variables(reference, comparison, "flag", last_time_step=False)
+
+
 def test_compare_variables_rejects_time_variables_when_last_time_step_is_enabled():
     reference = make_data_array(
         ["2024-01-01T00:00:00", "2024-01-02T00:00:00"],
@@ -693,6 +719,24 @@ def test_compare_files_explicit_selection_ignores_names_outside_it(tmp_path):
 
     assert [result.variable for result in results] == ["temp"]
     assert results[0].passed
+
+
+@pytest.mark.parametrize("variables", [None, [("flag", "flag")]])
+@pytest.mark.parametrize("last_time_step", [False, True])
+def test_compare_files_compares_boolean_variables(tmp_path, variables, last_time_step):
+    # netCDF has no bool type: xarray stores it as int8 with a dtype attribute and decodes it back.
+    def dataset(last_flags):
+        return xr.Dataset({"flag": (("time", "x"), [[True, True, False], last_flags])})
+
+    reference_path = write_dataset(tmp_path, "reference.nc", dataset([True, False, True]))
+    same_path = write_dataset(tmp_path, "same.nc", dataset([True, False, True]))
+    changed_path = write_dataset(tmp_path, "changed.nc", dataset([False, False, True]))
+
+    same = _by_variable(compare_files(reference_path, same_path, variables, last_time_step=last_time_step))
+    changed = _by_variable(compare_files(reference_path, changed_path, variables, last_time_step=last_time_step))
+
+    assert same["flag"].passed and same["flag"].note == "equality only"
+    assert changed["flag"].description == ("1 of 3 values differ" if last_time_step else "1 of 6 values differ")
 
 
 def _compare_selection(tmp_path, reference, comparison, variables, *, last_time_step=False):
