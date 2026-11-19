@@ -114,7 +114,7 @@ uv run xdiff files reference.nc comparison.nc -v thetao=votemper -v lon=longitud
 
 ### Restrict to a lon/lat box
 
-When two inputs share the same grid but cover different extents (e.g. a global file vs a regional subset), crop both to a common `--bbox LON_MIN LON_MAX LAT_MIN LAT_MAX` before comparing. Both 1-D (rectilinear) and 2-D (curvilinear, e.g. NEMO `nav_lon`/`nav_lat`) coordinates are supported:
+When two inputs share the same grid but cover different extents (e.g. a global file vs a regional subset), crop both to a common `--bbox LON_MIN LON_MAX LAT_MIN LAT_MAX` before comparing. Both 1-D (rectilinear) and 2-D (curvilinear, e.g. NEMO `nav_lon`/`nav_lat`) coordinates are supported. A curvilinear grid is cut to the smallest index rectangle that holds the box; floating-point fields are masked outside the box, while integer, boolean and text variables keep their type and are compared over the whole rectangle:
 
 ```shell
 uv run xdiff files global.nc regional.nc -v thetao --bbox -6 36 30 46

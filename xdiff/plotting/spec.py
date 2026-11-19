@@ -359,11 +359,16 @@ def _build_variable_plot(
     if reference_values.shape != comparison_values.shape:
         raise ValueError(f"shape {reference_values.shape} vs {comparison_values.shape}")
 
-    # Integer dtypes wrap on subtraction (uint8: 10 - 12 -> 254) and numpy refuses to
-    # subtract booleans; promote both to float first. Integers mirror compare_variables
-    # so the picture matches the numbers; booleans become a -1/0/1 map of the flags that
-    # differ (the report compares them for equality).
-    if reference_values.dtype.kind in "biu":
+    if reference_values.dtype.kind == "b":
+        # numpy refuses to subtract booleans, and so do the renderers (HoloViews pads a
+        # 1-D axis by subtracting its limits): plot the flags as 0/1, their difference as
+        # -1/0/1. The report compares them for equality instead.
+        reference_values = reference_values.astype(np.float64)
+        comparison_values = comparison_values.astype(np.float64)
+
+    # Integer dtypes wrap on subtraction (uint8: 10 - 12 -> 254); promote to float
+    # first, mirroring compare_variables so the picture matches the numbers.
+    if reference_values.dtype.kind in "iu":
         difference = reference_values.astype(np.float64) - comparison_values.astype(np.float64)
     else:
         difference = reference_values - comparison_values

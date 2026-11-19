@@ -115,7 +115,10 @@ def test_build_plot_spec_draws_booleans_as_a_signed_difference(tmp_path):
     spec = _spec_for(tmp_path, _rectilinear_dataset(reference_flags), _rectilinear_dataset(comparison_flags))
 
     assert spec.skipped == []
-    difference = spec.variables[0].difference
+    variable = spec.variables[0]
+    # The fields too: the renderers cannot subtract booleans either.
+    assert variable.reference.dtype == variable.comparison.dtype == np.float64
+    difference = variable.difference
     assert np.issubdtype(difference.dtype, np.floating)
     expected = np.zeros((3, 3))
     expected[0, 0], expected[2, 2] = 1.0, -1.0
@@ -973,6 +976,43 @@ def test_reference_card_is_built_only_when_opened():
 
     assert len(card.objects) == 1 and len(card.objects[0].objects) == 2  # reference + comparison
     assert toggles == [True]
+
+
+def test_reference_card_opens_for_a_one_dimensional_boolean_variable(tmp_path):
+    # The 1-D overlay passes the fields to holoviews.Curve, which subtracts its limits.
+    import holoviews as hv
+    import panel as pn
+
+    from xdiff.plotting.renderers.server import _load_viz, _rendered_variable
+
+    def dataset(flags):
+        return xr.Dataset(
+            {"flag": ("lon", np.array(flags))},
+            coords={"lon": ("lon", [0.0, 1.0, 2.0]), "lat": ("lat", [0.0, 1.0])},
+        )
+
+    reference_path = _write(tmp_path / "ref.nc", dataset([True, False, True]))
+    comparison_path = _write(tmp_path / "cmp.nc", dataset([True, True, True]))
+    source = open_plot_source(reference_path, comparison_path, None, last_time_step=False, bbox=None)
+    try:
+        _load_viz()
+        column = _rendered_variable(
+            hv,
+            pn,
+            source.slice(0, {}),
+            method="smooth",
+            basemap=None,
+            cmap_widget=pn.widgets.Select(options=["RdBu_r"], value="RdBu_r"),
+            climit_widget=pn.widgets.FloatSlider(start=0.0, end=1.0, value=0.5),
+            on_card_toggle=lambda _: None,
+        )
+        card = column.objects[-1]
+        card.collapsed = False
+        card.get_root()
+    finally:
+        source.close()
+
+    assert len(card.objects) == 1
 
 
 def test_reference_card_reopens_filled_when_left_open():
