@@ -565,7 +565,7 @@ def compare_variables(
         )
 
     return CompareResult(
-        relative_error=compute_relative_error(difference_field, comparison_values),
+        relative_error=compute_relative_error(difference_field, reference_values),
         min_diff=np.nanmin(difference_field),
         max_diff=np.nanmax(difference_field),
         mask_equal=mask_is_equal,
@@ -592,31 +592,44 @@ def find_time_dims_name(dims: Iterable) -> Any | None:
     return time_dimensions.pop()
 
 
-def compute_relative_error(diff: np.ndarray, field2: np.ndarray):
-    if np.all(diff == 0.0):
+def compute_relative_error(diff: np.ndarray, field2: np.ndarray) -> float:
+    """The maximum relative error ``|diff| / |field2|``, where ``field2`` is the reference field.
+
+    ``diff`` is the difference (reference minus comparison) and ``field2`` the reference,
+    of the same shape. Only points that differ count: a point whose difference is 0 (equal
+    values, two zeros included) or NaN (missing on either side) is left out, and the result
+    is 0.0 when no point differs. A difference where the reference is 0 gives ``inf``.
+    Dates (datetime64) have no relative error: NaN when they differ, 0.0 when they do not.
+    Durations (timedelta64) give the plain ratio of the two durations.
+    """
+    diff = np.asarray(diff)
+    reference = np.asarray(field2)
+    differs = (diff != 0) & ~np.isnan(diff)
+    if not differs.any():
         return 0.0
+    if np.issubdtype(reference.dtype, np.datetime64):
+        # A date has no zero to measure an error against.
+        return np.nan
 
-    if is_time_dtype(field2.dtype):
-        field2_values = field2.view("int64")
-    else:
-        field2_values = field2
+    # Only the differing points are divided, so 0/0 and NaN never reach the division; the
+    # errstate silences a difference over a zero reference (inf), inf/inf and overflow.
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        ratios = _magnitude(diff[differs]) / _magnitude(reference[differs])
+    return float(ratios.max())
 
-    abs_diff = np.abs(diff)
-    abs_field2 = np.abs(field2_values)
 
-    try:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rel_err_array = abs_diff / abs_field2
-            if np.isinf(rel_err_array).any():
-                rel_err_array[np.isinf(rel_err_array)] = np.nan
-            rel_err = np.nanmax(rel_err_array)
-    except Exception as exc:
-        logger.debug("An error occurred when computing relative error: %s", exc)
-        rel_err = np.nan
+def _magnitude(values: np.ndarray) -> np.ndarray:
+    """``|values|`` as float64, or as durations for timedelta64.
 
-    if is_time_dtype(field2.dtype):
-        return rel_err / np.timedelta64(1, "s")
-    return rel_err
+    Integers are converted before taking the absolute value, which overflows for them
+    (``abs(int8(-128))`` is ``-128``), and complex values are widened to complex128 first.
+    Dividing two durations already gives a float64 ratio.
+    """
+    if np.issubdtype(values.dtype, np.timedelta64):
+        return np.abs(values)
+    if np.iscomplexobj(values):
+        return np.abs(values.astype(np.complex128, copy=False))
+    return np.abs(values.astype(np.float64, copy=False))
 
 
 def is_time_dtype(dtype) -> bool:
