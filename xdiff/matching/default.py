@@ -8,7 +8,7 @@ from xdiff.utils.regex import common_pattern_exists
 
 
 class DefaultArtifactMatcher:
-    """Match artifacts by relative path and optional common-pattern fallback.
+    """Pair artifacts by relative path, by file name, or by an optional common pattern.
 
     A file found under only one root gets a match whose other side is ``None``.
     """
