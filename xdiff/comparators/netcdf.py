@@ -529,6 +529,11 @@ def compare_variables(
         difference_field = reference_values.astype(np.float64) - comparison_values.astype(np.float64)
     else:
         difference_field = reference_values - comparison_values
+    if difference_field.dtype.kind == "m":
+        # A date or duration difference: keep it in nanoseconds. float() of a timedelta64 in
+        # a coarser unit (s, ms, us) returns a datetime.timedelta, which CompareResult.passed
+        # cannot turn into a number, and the run would abort.
+        difference_field = difference_field.astype("timedelta64[ns]")
 
     mask_is_equal = np.array_equal(reference_masked.mask, comparison_masked.mask)
 
@@ -595,7 +600,7 @@ def find_time_dims_name(dims: Iterable) -> Any | None:
 
 # Points per block in compute_relative_error. Its float64 temporaries stay at about 2 MB
 # whatever the size of the field, and small enough to stay in the CPU cache: measured on
-# 50M points, 2**16 beat 2**20 and 2**14, and the whole-array computation (master's).
+# 50M points, 2**16 was faster than 2**20 and 2**14.
 RELATIVE_ERROR_BLOCK_SIZE = 1 << 16
 
 

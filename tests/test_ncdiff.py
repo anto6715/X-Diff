@@ -231,6 +231,24 @@ def test_compare_variables_gives_durations_their_ratio_and_differences(tmp_path)
     assert identical.passed
 
 
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_compare_variables_reports_durations_in_any_unit(unit):
+    # xarray reads durations back in the unit they were written in, e.g. pandas' [s].
+    hours = np.array([6, 1, 2], dtype="timedelta64[h]").astype(f"timedelta64[{unit}]")
+    reference = xr.DataArray(hours, dims="x")
+    comparison = xr.DataArray(hours - np.array([3, 0, 0], dtype="timedelta64[h]"), dims="x")
+
+    result = compare_variables(reference, comparison, "duration", last_time_step=False)
+    identical = compare_variables(reference, reference.copy(), "duration", last_time_step=False)
+
+    # float() of a timedelta64 coarser than ns gives a datetime.timedelta, so reading
+    # .passed used to raise and abort the run.
+    assert identical.passed
+    assert not result.passed
+    assert result.relative_error == 0.5
+    assert result.max_diff == np.timedelta64(3, "h")
+
+
 def test_compare_variables_divides_the_relative_error_by_the_reference():
     reference = make_data_array([4.0, 8.0])
     comparison = make_data_array([2.0, 7.0])
