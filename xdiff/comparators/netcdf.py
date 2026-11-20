@@ -523,8 +523,9 @@ def compare_variables(
     # silently corrupting min/max/relative-error. Promote integer operands to
     # float before subtracting; float and datetime/timedelta dtypes already
     # subtract correctly and are left untouched (the time path relies on the
-    # resulting timedelta64).
-    if np.issubdtype(reference_values.dtype, np.integer):
+    # resulting timedelta64). Test the kind, not np.integer: numpy counts timedelta64
+    # as an integer type, and converting durations to float broke their ratio.
+    if reference_values.dtype.kind in "iu":
         difference_field = reference_values.astype(np.float64) - comparison_values.astype(np.float64)
     else:
         difference_field = reference_values - comparison_values

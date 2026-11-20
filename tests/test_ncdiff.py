@@ -211,6 +211,26 @@ def test_compute_relative_error_broadcasts_the_reference_like_a_division():
     assert compute_relative_error(diff, np.array([4.0, 6.0])) == 0.5
 
 
+def test_compare_variables_gives_durations_their_ratio_and_differences(tmp_path):
+    hours = np.array([6, 1, 2], dtype="timedelta64[h]").astype("timedelta64[ns]")
+    xr.Dataset({"duration": ("x", hours)}).to_netcdf(tmp_path / "ref.nc")
+    xr.Dataset({"duration": ("x", hours - np.array([3, 0, 0], dtype="timedelta64[h]"))}).to_netcdf(tmp_path / "cmp.nc")
+    # Read back through netCDF, as in a real run: xarray decodes the variable as timedelta64.
+    with xr.open_dataset(tmp_path / "ref.nc") as reference, xr.open_dataset(tmp_path / "cmp.nc") as comparison:
+        assert reference["duration"].dtype.kind == "m"
+        result = compare_variables(reference["duration"], comparison["duration"], "duration", last_time_step=False)
+        identical = compare_variables(reference["duration"], reference["duration"], "duration", last_time_step=False)
+
+    # numpy counts timedelta64 as an integer type; converting it to float like an integer
+    # made the ratio fail with "ufunc 'divide' cannot use operands with types float64 and m8[ns]".
+    assert result.description == "-"
+    assert result.relative_error == 0.5
+    assert result.max_diff == np.timedelta64(3, "h")
+    assert result.min_diff == np.timedelta64(0, "h")
+    assert not result.passed
+    assert identical.passed
+
+
 def test_compare_variables_divides_the_relative_error_by_the_reference():
     reference = make_data_array([4.0, 8.0])
     comparison = make_data_array([2.0, 7.0])
