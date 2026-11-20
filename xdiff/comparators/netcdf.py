@@ -618,16 +618,24 @@ def compute_relative_error(diff: np.ndarray, field2: np.ndarray) -> float:
     flat_diff = diff.reshape(-1)
     flat_reference = reference.reshape(-1)
     result = 0.0
-    # The errstate silences a difference over a zero reference (inf), inf/inf and overflow;
-    # 0/0 only happens where nothing differs, which ``where`` leaves out of the maximum.
+    # The errstate silences a difference over a zero reference (inf), inf/inf and overflow.
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         for start in range(0, flat_diff.size, RELATIVE_ERROR_BLOCK_SIZE):
             block = slice(start, start + RELATIVE_ERROR_BLOCK_SIZE)
-            differs = _differs(flat_diff[block])
+            block_diff = flat_diff[block]
+            differs = _differs(block_diff)
             if not differs.any():
                 continue
-            ratios = _magnitude(flat_diff[block]) / _magnitude(flat_reference[block])
-            block_max = float(ratios.max(where=differs, initial=0.0))
+            ratios = _magnitude(block_diff) / _magnitude(flat_reference[block])
+            if block_diff.dtype.kind != "m" and np.isinf(block_diff).any():
+                # inf/inf gives NaN at a point that differs, so only a masked maximum
+                # keeps it apart from the NaN of points that do not.
+                block_max = float(ratios.max(where=differs, initial=0.0))
+            else:
+                # A point that does not differ gives 0 (0/|ref|) or NaN (0/0, a missing
+                # value), and fmax skips NaN: the same maximum as one masked to the points
+                # that differ, without the masked reduction's cost on scattered points.
+                block_max = float(np.fmax.reduce(ratios, initial=0.0))
             if np.isnan(block_max):
                 return np.nan  # inf/inf: an infinite reference against a finite comparison
             result = max(result, block_max)
