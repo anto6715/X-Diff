@@ -179,6 +179,38 @@ def test_compute_relative_error_emits_no_runtime_warning(diff, reference):
         compute_relative_error(diff, reference)
 
 
+@pytest.mark.parametrize(
+    ("reference", "comparison", "expected"),
+    [
+        # Nothing differs in the first block; the largest ratio is in the second, and the
+        # smaller one in the last block must not replace it.
+        ([1.0, 2.0, 3.0, 4.0, 4.0, 4.0, 10.0], [1.0, 2.0, 3.0, 2.0, 4.0, 4.0, 9.0], 0.5),
+        # A zero reference in the last, partial block.
+        ([1.0, 1.0, 1.0, 2.0, 0.0], [1.0, 1.0, 1.0, 1.0, 1.0], np.inf),
+        # inf/inf in a later block wins over an earlier finite ratio, as without blocks.
+        ([2.0, 1.0, 1.0, np.inf], [1.0, 1.0, 1.0, 1.0], np.nan),
+        # Points that differ only through NaN, in every block.
+        ([np.nan, 1.0, 1.0, np.nan, 2.0], [1.0, 1.0, 1.0, 1.0, 2.0], 0.0),
+    ],
+)
+def test_compute_relative_error_gives_the_same_maximum_block_by_block(monkeypatch, reference, comparison, expected):
+    reference, comparison = np.array(reference), np.array(comparison)
+    with np.errstate(invalid="ignore"):
+        diff = reference - comparison
+    whole = compute_relative_error(diff, reference)
+
+    monkeypatch.setattr("xdiff.comparators.netcdf.RELATIVE_ERROR_BLOCK_SIZE", 3)
+    blocked = compute_relative_error(diff.reshape(-1, 1), reference.reshape(-1, 1))
+
+    np.testing.assert_equal([whole, blocked], [expected, expected])
+
+
+def test_compute_relative_error_broadcasts_the_reference_like_a_division():
+    diff = np.array([[1.0, 2.0], [0.0, 3.0]])
+
+    assert compute_relative_error(diff, np.array([4.0, 6.0])) == 0.5
+
+
 def test_compare_variables_divides_the_relative_error_by_the_reference():
     reference = make_data_array([4.0, 8.0])
     comparison = make_data_array([2.0, 7.0])

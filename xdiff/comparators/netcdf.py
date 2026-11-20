@@ -592,30 +592,51 @@ def find_time_dims_name(dims: Iterable) -> Any | None:
     return time_dimensions.pop()
 
 
+# Points per block in compute_relative_error. Its float64 temporaries stay at a few MB
+# whatever the size of the field, so it adds no full-size copy to the comparison.
+RELATIVE_ERROR_BLOCK_SIZE = 1 << 20
+
+
 def compute_relative_error(diff: np.ndarray, field2: np.ndarray) -> float:
     """The maximum relative error ``|diff| / |field2|``, where ``field2`` is the reference field.
 
     ``diff`` is the difference (reference minus comparison) and ``field2`` the reference,
-    of the same shape. Only points that differ count: a point whose difference is 0 (equal
-    values, two zeros included) or NaN (missing on either side) is left out, and the result
-    is 0.0 when no point differs. A difference where the reference is 0 gives ``inf``.
-    Dates (datetime64) have no relative error: NaN when they differ, 0.0 when they do not.
-    Durations (timedelta64) give the plain ratio of the two durations.
+    broadcast to the shape of ``diff``. Only points that differ count: a point whose
+    difference is 0 (equal values, two zeros included) or NaN (missing on either side) is
+    left out, and the result is 0.0 when no point differs. A difference where the reference
+    is 0 gives ``inf``. Dates (datetime64) have no relative error: NaN when they differ, 0.0
+    when they do not. Durations (timedelta64) give the plain ratio of the two durations.
     """
     diff = np.asarray(diff)
-    reference = np.asarray(field2)
-    differs = (diff != 0) & ~np.isnan(diff)
-    if not differs.any():
-        return 0.0
+    reference = np.broadcast_to(np.asarray(field2), diff.shape)
     if np.issubdtype(reference.dtype, np.datetime64):
         # A date has no zero to measure an error against.
-        return np.nan
+        return np.nan if _differs(diff).any() else 0.0
 
-    # Only the differing points are divided, so 0/0 and NaN never reach the division; the
-    # errstate silences a difference over a zero reference (inf), inf/inf and overflow.
+    flat_diff = diff.reshape(-1)
+    flat_reference = reference.reshape(-1)
+    result = 0.0
+    # The errstate silences a difference over a zero reference (inf), inf/inf and overflow;
+    # 0/0 only happens where nothing differs, which ``where`` leaves out of the maximum.
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-        ratios = _magnitude(diff[differs]) / _magnitude(reference[differs])
-    return float(ratios.max())
+        for start in range(0, flat_diff.size, RELATIVE_ERROR_BLOCK_SIZE):
+            block = slice(start, start + RELATIVE_ERROR_BLOCK_SIZE)
+            differs = _differs(flat_diff[block])
+            if not differs.any():
+                continue
+            ratios = _magnitude(flat_diff[block]) / _magnitude(flat_reference[block])
+            block_max = float(ratios.max(where=differs, initial=0.0))
+            if np.isnan(block_max):
+                return np.nan  # inf/inf: an infinite reference against a finite comparison
+            result = max(result, block_max)
+    return result
+
+
+def _differs(diff: np.ndarray) -> np.ndarray:
+    """True where the difference is neither 0 nor NaN (a value missing on either side)."""
+    differs = diff != 0
+    differs &= ~np.isnan(diff)
+    return differs
 
 
 def _magnitude(values: np.ndarray) -> np.ndarray:
@@ -629,7 +650,7 @@ def _magnitude(values: np.ndarray) -> np.ndarray:
         return np.abs(values)
     if np.iscomplexobj(values):
         return np.abs(values.astype(np.complex128, copy=False))
-    return np.abs(values.astype(np.float64, copy=False))
+    return np.abs(values, dtype=np.float64)
 
 
 def is_time_dtype(dtype) -> bool:
