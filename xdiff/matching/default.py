@@ -8,7 +8,10 @@ from xdiff.utils.regex import common_pattern_exists
 
 
 class DefaultArtifactMatcher:
-    """Match artifacts by relative path and optional common-pattern fallback."""
+    """Match artifacts by relative path and optional common-pattern fallback.
+
+    A file found under only one root gets a match whose other side is ``None``.
+    """
 
     def match(
         self,
@@ -17,6 +20,7 @@ class DefaultArtifactMatcher:
         common_pattern: str | None = None,
     ) -> list[ArtifactMatch]:
         matches: list[ArtifactMatch] = []
+        paired: set[Artifact] = set()
 
         for reference in reference_artifacts:
             matched_artifacts: list[Artifact] = []
@@ -30,7 +34,15 @@ class DefaultArtifactMatcher:
 
             for comparison in matched_artifacts:
                 matches.append(ArtifactMatch(reference=reference, comparison=comparison))
+            paired.update(matched_artifacts)
 
+        # A comparison file no reference file paired with is a difference between the two
+        # trees too: report it (after the pairs, in discovery order) so the run cannot pass.
+        matches.extend(
+            ArtifactMatch(reference=None, comparison=comparison)
+            for comparison in comparison_artifacts
+            if comparison not in paired
+        )
         return matches
 
     @staticmethod

@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from xdiff.exceptions import NoMatchFound
 from xdiff.model import CompareResult, ComparisonReport
 from xdiff.model.comparison import Comparison
 
@@ -145,7 +146,7 @@ def render_failed_comparisons_table(failed_comparisons: list[Comparison]) -> Tab
 
     for comparison in failed_comparisons:
         table.add_row(
-            str(comparison.reference_file),
+            str(comparison.reference_file or "-"),
             str(comparison.comparison_file or "-"),
             f"{comparison_failed_check_count(comparison)}/{comparison_total_check_count(comparison)}",
             comparison_failure_type(comparison),
@@ -164,23 +165,34 @@ def build_comparison_title(comparison: Comparison) -> str:
             f"{comparison_failed_check_count(comparison)}/{comparison_total_check_count(comparison)} failed checks"
         )
 
-    return (
-        f"{comparison_status_label(comparison)} {comparison.reference_file} vs {comparison.comparison_file or '-'} "
-        f"[dim]({check_summary})[/dim]"
-    )
+    reference = comparison.reference_file or "-"
+    target = comparison.comparison_file or "-"
+    return f"{comparison_status_label(comparison)} {reference} vs {target} [dim]({check_summary})[/dim]"
 
 
 def comparison_status_label(comparison: Comparison) -> str:
     """Return the status label used in comparison titles."""
     if comparison.passed:
         return "[green]PASSED[/green]"
-    if comparison.exception is not None and comparison.comparison_file is None:
-        return "[red]NO MATCH[/red]"
+    missing_side = _missing_side(comparison)
+    if missing_side is not None:
+        return f"[red]ONLY IN {missing_side.upper()}[/red]"
     if comparison.exception is not None:
         return "[red]ERROR[/red]"
     if len(comparison) == 0:
         return "[red]NO CHECKS[/red]"
     return "[red]FAILED[/red]"
+
+
+def _missing_side(comparison: Comparison) -> str | None:
+    """``"reference"`` or ``"comparison"``: the only side a file was found on, if it lacks a counterpart."""
+    if not isinstance(comparison.exception, NoMatchFound):
+        return None
+    if comparison.comparison_artifact is None:
+        return "reference"
+    if comparison.reference_artifact is None:
+        return "comparison"
+    return None
 
 
 def comparison_total_check_count(comparison: Comparison) -> int:
@@ -199,8 +211,9 @@ def comparison_failed_check_count(comparison: Comparison) -> int:
 
 def comparison_failure_type(comparison: Comparison) -> str:
     """Return a short failure classification."""
-    if comparison.exception is not None and comparison.comparison_file is None:
-        return "No match"
+    missing_side = _missing_side(comparison)
+    if missing_side is not None:
+        return f"Only in {missing_side}"
     if comparison.exception is not None:
         return "Error"
     if len(comparison) == 0:

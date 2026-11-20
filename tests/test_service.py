@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from xdiff.core.service import ComparisonService
+from xdiff.exceptions import NoMatchFound
 from xdiff.matching import DefaultArtifactMatcher
 from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest, CompareResult
 from xdiff.model.comparison import Comparison
+from xdiff.model.match import ArtifactMatch
 
 
 class StaticDiscovery:
@@ -70,6 +74,7 @@ def test_comparison_service_records_missing_matches():
     assert len(report) == 1
     assert report.comparisons[0].comparison_file is None
     assert type(report.comparisons[0].exception).__name__ == "NoMatchFound"
+    assert str(report.comparisons[0].exception) == "Only in the reference directory"
 
 
 def test_comparison_service_reports_unregistered_artifact_types():
@@ -400,3 +405,111 @@ def test_comparison_service_warns_when_more_workers_than_file_pairs(monkeypatch,
         service.run(request)
 
     assert "some workers will remain idle" in caplog.text
+
+
+def _netcdf(path: str) -> Artifact:
+    return Artifact.from_path(Path(path), root=Path(path.split("/")[0]), kind=ArtifactKind.NETCDF)
+
+
+def test_default_artifact_matcher_reports_comparison_files_without_a_reference():
+    matcher = DefaultArtifactMatcher()
+    reference = _netcdf("ref/a.nc")
+    paired, extra_b, extra_c = _netcdf("cmp/a.nc"), _netcdf("cmp/b.nc"), _netcdf("cmp/c.nc")
+
+    matches = matcher.match([reference], [paired, extra_b, extra_c])
+
+    # The pairs first, then each comparison file no reference file paired with, in discovery order.
+    assert [(match.reference, match.comparison) for match in matches] == [
+        (reference, paired),
+        (None, extra_b),
+        (None, extra_c),
+    ]
+
+
+def test_artifact_match_needs_at_least_one_artifact():
+    with pytest.raises(ValueError, match="at least one artifact"):
+        ArtifactMatch(reference=None, comparison=None)
+
+
+def test_comparison_service_fails_a_file_only_in_the_comparison_directory():
+    class PassingComparator:
+        artifact_kind = ArtifactKind.NETCDF
+
+        def compare(self, match, request):
+            comparison = Comparison(reference_artifact=match.reference, comparison_artifact=match.comparison)
+            comparison.append(
+                CompareResult(relative_error=0.0, min_diff=0.0, max_diff=0.0, mask_equal=True, variable="temp")
+            )
+            return comparison
+
+    service = ComparisonService(
+        discovery=StaticDiscovery(
+            {Path("ref"): [_netcdf("ref/a.nc")], Path("cmp"): [_netcdf("cmp/a.nc"), _netcdf("cmp/b.nc")]}
+        ),
+        matcher=DefaultArtifactMatcher(),
+        comparators=[PassingComparator()],
+    )
+
+    report = service.run(make_request())
+
+    # The pair that exists on both sides passes, but the extra comparison file used to be
+    # ignored and the run passed; now it fails the run.
+    assert [comparison.passed for comparison in report.comparisons] == [True, False]
+    only_in_comparison = report.comparisons[1]
+    assert only_in_comparison.reference_file is None
+    assert only_in_comparison.comparison_file == Path("cmp/b.nc")
+    assert isinstance(only_in_comparison.exception, NoMatchFound)
+    assert str(only_in_comparison.exception) == "Only in the comparison directory"
+    assert report.has_failures
+
+
+def test_comparison_service_runs_a_file_only_in_the_comparison_directory_outside_dask(monkeypatch):
+    class FakeComparator:
+        artifact_kind = ArtifactKind.NETCDF
+
+        def compare(self, match, request):
+            return Comparison(reference_artifact=match.reference, comparison_artifact=match.comparison)
+
+    submissions = []
+
+    class FakeClient:
+        def submit(self, func, *args, **kwargs):
+            submissions.append(args[0])
+            return func(*args)
+
+    class FakeContextManager:
+        def __enter__(self):
+            return FakeClient()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("xdiff.core.service.dask_runtime.client_from_request", lambda request: FakeContextManager())
+    monkeypatch.setattr(
+        "xdiff.core.service.dask_runtime.iterate_results_as_completed",
+        lambda futures: ((future, future) for future in futures),
+    )
+    request = CompareRequest(
+        input_mode=CompareMode.DIRECTORIES,
+        reference_path=Path("ref"),
+        comparison_path=Path("cmp"),
+        filter_name="*.nc",
+        common_pattern=None,
+        variables=None,
+        last_time_step=False,
+        dask_workers=2,
+    )
+    service = ComparisonService(
+        discovery=StaticDiscovery(
+            {Path("ref"): [_netcdf("ref/a.nc")], Path("cmp"): [_netcdf("cmp/a.nc"), _netcdf("cmp/b.nc")]}
+        ),
+        matcher=DefaultArtifactMatcher(),
+        comparators=[FakeComparator()],
+    )
+
+    report = service.run(request)
+
+    # Only the real pair goes to a worker; the one-sided match is settled inline.
+    assert [match.comparison.path.name for match in submissions] == ["a.nc"]
+    assert [comparison.comparison_file.name for comparison in report.comparisons] == ["a.nc", "b.nc"]
+    assert str(report.comparisons[1].exception) == "Only in the comparison directory"

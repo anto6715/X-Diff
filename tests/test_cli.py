@@ -374,6 +374,27 @@ def test_empty_dirs_summary_agrees_with_exit_code(tmp_path):
     assert "PASSED" not in result.output
 
 
+def test_dirs_fails_on_a_file_only_in_the_comparison_directory(tmp_path):
+    import xarray as xr
+
+    for side in ("ref", "cmp"):
+        (tmp_path / side).mkdir()
+        xr.Dataset({"temp": ("x", [1.0, 2.0])}).to_netcdf(tmp_path / side / "a.nc")
+    xr.Dataset({"temp": ("x", [1.0, 2.0])}).to_netcdf(tmp_path / "cmp" / "extra.nc")
+
+    result = CliRunner().invoke(
+        cli,
+        ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "--no-progress"],
+        env={"COLUMNS": "200"},  # keep the table cells on one line
+    )
+
+    # The extra file used to be ignored and the run exited 0.
+    assert result.exit_code == 1
+    assert "ONLY IN COMPARISON" in result.output
+    assert "Only in the comparison directory" in result.output
+    assert "1 passed, 1 failed" in result.output
+
+
 def test_files_fails_on_a_variable_only_in_the_comparison_file(tmp_path):
     import xarray as xr
 

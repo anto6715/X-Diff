@@ -1,6 +1,7 @@
 from io import StringIO
 from pathlib import Path
 
+from xdiff.exceptions import NoMatchFound
 from xdiff.model import CompareResult, ComparisonReport
 from xdiff.model.artifact import Artifact
 from xdiff.model.comparison import Comparison
@@ -151,3 +152,15 @@ def test_live_result_line_uses_the_failure_reason_and_truncates():
     line = progress.format_live_result(comparison, rich_markup=False)
 
     assert line == "FAILED ref.nc vs cmp.nc (4/4 failed: temp (shape mismatch), v0 (bad), v1 (bad) (+1 more))"
+
+
+def test_live_result_line_for_a_file_only_in_the_comparison_directory():
+    comparison = Comparison(
+        reference_artifact=None,
+        comparison_artifact=Artifact.from_path(Path("extra.nc")),
+        exception=NoMatchFound("Only in the comparison directory"),
+    )
+
+    line = progress.format_live_result(comparison, rich_markup=False)
+
+    assert line == "FAILED - vs extra.nc (Only in the comparison directory)"

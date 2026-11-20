@@ -19,7 +19,7 @@ flowchart TD
 
 Discovery finds artifacts on disk, Matcher pairs them across the two roots, and the Service dispatches each matched pair to the right comparator based on its kind. The Formatter and progress reporter consume `Comparison` / `CompareResult` objects — they are fully generic and never need to change.
 
-Error cases (no match found, kind mismatch between the pair, no comparator registered) are handled centrally by `compare_match()` in `service.py`. Your comparator only needs to handle the happy path.
+Error cases (a file found in only one directory, kind mismatch between the pair, no comparator registered) are handled centrally by `compare_match()` in `service.py`. Your comparator only needs to handle the happy path: it is called only when both `match.reference` and `match.comparison` are set (their type is `Artifact | None` because the matcher also returns one-sided matches).
 
 ## Four Touch Points
 
@@ -110,7 +110,7 @@ Add a test file under `tests/test_<type>_comparator.py`. A minimal smoke test co
 
 - two identical artifacts → all results pass
 - two differing artifacts → at least one result fails with a non-zero error metric
-- a missing comparison artifact → the service produces a `NoMatchFound` error (this is handled upstream, but it is worth asserting via the service layer)
+- a file present in only one directory → the service produces a `NoMatchFound` error naming the side (this is handled upstream, but it is worth asserting via the service layer)
 
 Run the full suite before opening a PR:
 

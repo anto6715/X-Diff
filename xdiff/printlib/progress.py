@@ -268,7 +268,7 @@ def _format_summary(
 
 def format_live_result(comparison: Comparison, *, rich_markup: bool = True) -> str:
     """Format a short per-comparison result line for live progress output."""
-    target = f"{comparison.reference_file} vs {comparison.comparison_file or '-'}"
+    target = f"{comparison.reference_file or '-'} vs {comparison.comparison_file or '-'}"
     if comparison.passed:
         detail = f"{pluralize(comparison_total_check_count(comparison), 'check')} passed"
         return _format_status_line("PASSED", target, detail, rich_markup=rich_markup, style="green")

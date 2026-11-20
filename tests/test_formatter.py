@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from xdiff.exceptions import NoMatchFound
 from xdiff.model.artifact import Artifact
 from xdiff.model.compare_result import CompareResult
 from xdiff.model.comparison import Comparison
@@ -120,7 +121,7 @@ def test_render_failed_comparisons_table_highlights_failed_checks():
     exception = Comparison(
         reference_artifact=Artifact.from_path(Path("missing.nc")),
         comparison_artifact=None,
-        exception=RuntimeError("No match found"),
+        exception=NoMatchFound("Only in the reference directory"),
     )
     failed_variables = Comparison(
         reference_artifact=Artifact.from_path(Path("ref.nc")),
@@ -142,7 +143,7 @@ def test_render_failed_comparisons_table_highlights_failed_checks():
     assert table.row_count == 2
     assert formatter.comparison_failed_check_count(exception) == 1
     assert formatter.comparison_failed_check_count(failed_variables) == 1
-    assert formatter.comparison_failure_type(exception) == "No match"
+    assert formatter.comparison_failure_type(exception) == "Only in reference"
     assert formatter.comparison_failure_details(failed_variables) == "temp (shape mismatch)"
 
 
@@ -205,3 +206,45 @@ def test_summary_status_matches_report_outcome():
     # The label must never say PASSED when the CLI is about to exit 1.
     for report in (empty, passing, failing):
         assert ("PASSED" in formatter.summary_status(report)) is (not report.has_failures)
+
+
+def test_a_file_only_in_the_comparison_directory_names_the_side_it_is_on(monkeypatch):
+    captured = {}
+
+    class FakeTable:
+        def __init__(self, *args, **kwargs):
+            captured["rows"] = []
+
+        def add_column(self, *_args, **_kwargs):
+            return None
+
+        def add_row(self, *values):
+            captured["rows"].append(values)
+
+    monkeypatch.setattr(formatter, "Table", FakeTable)
+    only_in_comparison = Comparison(
+        reference_artifact=None,
+        comparison_artifact=Artifact.from_path(Path("cmp/extra.nc")),
+        exception=NoMatchFound("Only in the comparison directory"),
+    )
+
+    formatter.render_failed_comparisons_table([only_in_comparison])
+
+    assert captured["rows"] == [
+        ("-", "cmp/extra.nc", "1/1", "Only in comparison", "Only in the comparison directory"),
+    ]
+    assert formatter.build_comparison_title(only_in_comparison).startswith(
+        "[red]ONLY IN COMPARISON[/red] - vs cmp/extra.nc "
+    )
+
+
+def test_an_error_on_a_one_sided_comparison_is_not_labelled_as_a_missing_file():
+    # The legacy xdiff.compare API records any exception with no comparison file.
+    failed = Comparison(
+        reference_artifact=Artifact.from_path(Path("ref.nc")),
+        comparison_artifact=None,
+        exception=OSError("cannot read"),
+    )
+
+    assert formatter.comparison_status_label(failed) == "[red]ERROR[/red]"
+    assert formatter.comparison_failure_type(failed) == "Error"

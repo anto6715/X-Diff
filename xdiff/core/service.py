@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from xdiff.comparators.base import ArtifactComparator
     from xdiff.printlib.progress import ProgressReporter
 
+ONLY_IN_REFERENCE = "Only in the reference directory"
+ONLY_IN_COMPARISON = "Only in the comparison directory"
+
 
 def load_default_comparators() -> list[ArtifactComparator]:
     """Build the default comparator registry lazily."""
@@ -34,11 +37,11 @@ def compare_match(
     comparators: Mapping,
 ) -> Comparison:
     """Compare a single match while preserving the current error-reporting contract."""
-    if match.comparison is None:
+    if match.comparison is None or match.reference is None:
         return Comparison(
             reference_artifact=match.reference,
-            comparison_artifact=None,
-            exception=NoMatchFound(f"No match found for {match.reference.path}"),
+            comparison_artifact=match.comparison,
+            exception=NoMatchFound(ONLY_IN_COMPARISON if match.reference is None else ONLY_IN_REFERENCE),
         )
 
     if match.reference.kind != match.comparison.kind:
@@ -221,7 +224,8 @@ class ComparisonService:
 
     def _can_parallelize_match(self, match: ArtifactMatch) -> bool:
         return (
-            match.comparison is not None
+            match.reference is not None
+            and match.comparison is not None
             and match.reference.kind == match.comparison.kind
             and self.comparators.get(match.reference.kind) is not None
         )

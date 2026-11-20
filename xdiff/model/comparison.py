@@ -12,9 +12,12 @@ from xdiff.model.compare_result import CompareResult
 
 @dataclass(slots=True)
 class Comparison:
-    """Comparison outcome for a matched artifact pair."""
+    """Comparison outcome for a matched artifact pair.
 
-    reference_artifact: Artifact
+    One artifact is ``None`` when the file exists under only one root (see ``ArtifactMatch``).
+    """
+
+    reference_artifact: Artifact | None
     comparison_artifact: Artifact | None
     compare_results: list[CompareResult] = field(default_factory=list)
     exception: Exception | None = None
@@ -33,7 +36,9 @@ class Comparison:
         )
 
     @property
-    def reference_file(self) -> Path:
+    def reference_file(self) -> Path | None:
+        if self.reference_artifact is None:
+            return None
         return self.reference_artifact.path
 
     @property

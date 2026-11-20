@@ -20,7 +20,7 @@ xdiff/
 ├── discovery/
 │   └── filesystem.py  FileSystemArtifactDiscovery: glob-based artifact discovery
 ├── matching/
-│   └── default.py   DefaultArtifactMatcher: pairs artifacts by relative path or common pattern
+│   └── default.py   DefaultArtifactMatcher: pairs by relative path or common pattern; unpaired files become one-sided matches
 ├── exceptions/      Domain exceptions: LastTimestepTimeCheckException,
 │                    NoMatchFound, UnsupportedArtifactTypeError
 ├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, BoundingBox, CompareMode,
