@@ -157,9 +157,9 @@ Use `--port N` if `5006` is taken (a busy port fails immediately with a clear me
 
 ### Filter files
 
-By default **xdiff** pairs every file in **folder1** with the file at the same relative path in **folder2**, and a file
-found in only one of the two folders fails the run. Using filters, it is possible to select only a subset of input files.
-For example:
+By default **xdiff** pairs each file in **folder1** with the files in **folder2** that have the same relative path or the
+same file name, and a file left without a counterpart in either folder fails the run. Using filters, it is possible to
+select only a subset of input files. For example:
 
 ```shell
 uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
