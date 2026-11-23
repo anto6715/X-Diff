@@ -119,15 +119,26 @@ def scaled_label(limit: float, units: str | None) -> tuple[float, str]:
     return 10.0**exponent, f"difference [×10$^{{{exponent}}}${unit_text}]"
 
 
+_MISSING_MATPLOTLIB_HINT = (
+    "matplotlib is required for static plots. Install the plot extra with "
+    '`uv sync --extra plot` or `uv tool install "xdiffly[plot]"`.'
+)
+
+
+def ensure_backend_available() -> None:
+    """Fail fast (before any datasets are opened) when matplotlib is missing."""
+    from importlib.util import find_spec
+
+    if find_spec("matplotlib") is None:
+        raise RuntimeError(_MISSING_MATPLOTLIB_HINT)
+
+
 def _load_pyplot():
     """Import matplotlib with the headless Agg backend, lazily and with a clear hint."""
     try:
         import matplotlib
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise RuntimeError(
-            "matplotlib is required for static plots. Install the plot extra with "
-            '`uv sync --extra plot` or `uv tool install "xdiffly[plot]"`.'
-        ) from exc
+        raise RuntimeError(_MISSING_MATPLOTLIB_HINT) from exc
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 

@@ -14,6 +14,7 @@ small (no cartopy/geoviews).
 
 from __future__ import annotations
 
+import errno
 import logging
 import threading
 from typing import TYPE_CHECKING, NamedTuple
@@ -98,6 +99,16 @@ def ensure_backend_available() -> None:
         raise RuntimeError(_MISSING_BACKEND_HINT)
 
 
+def _port_bind_error(exc: OSError, address: str, port: int) -> ValueError:
+    if exc.errno == errno.EADDRINUSE:
+        return ValueError(
+            f"port {port} on {address} is already in use; choose another with --port "
+            f"(note the Dask dashboard uses :8787)"
+        )
+    detail = exc.strerror or str(exc)
+    return ValueError(f"cannot bind port {port} on {address}: {detail}")
+
+
 def ensure_port_available(address: str, port: int) -> None:
     """Fail fast (before any datasets are opened) if ``port`` is already in use.
 
@@ -122,10 +133,7 @@ def ensure_port_available(address: str, port: int) -> None:
         # Tornado does not close the sockets it bound before the failure, nor the one that
         # failed; they are only reachable through this traceback, so dropping it frees them
         # now rather than whenever the ValueError is collected.
-        raise ValueError(
-            f"port {port} on {address} is already in use; choose another with --port "
-            f"(note the Dask dashboard uses :8787)"
-        ) from exc.with_traceback(None)
+        raise _port_bind_error(exc, address, port) from exc.with_traceback(None)
     for sock in sockets:
         sock.close()
 
@@ -166,6 +174,8 @@ def serve(
             title="xdiff plot",
             websocket_origin=[f"localhost:{port}", f"127.0.0.1:{port}", f"{address}:{port}"],
         )
+    except OSError as exc:
+        raise _port_bind_error(exc, address, port) from exc
     except KeyboardInterrupt:  # pragma: no cover - interactive Ctrl-C path
         pass
 

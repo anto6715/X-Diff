@@ -338,9 +338,13 @@ def plot(
 
     server_port = port if port is not None else DEFAULT_PORT
     try:
-        # Fail fast on a missing plot extra or a busy port before opening any datasets.
+        # Fail fast on a missing plot extra, busy port, or malformed -v before opening datasets.
         ensure_backend_available()
         ensure_port_available(address, server_port)
+        if variables:
+            from xdiff.core.main import normalize_variables
+
+            normalize_variables(variables)
         # The live server lets you browse every variable, so open them all; -v only picks
         # which one is shown first (see _default_variable_index).
         source = open_plot_source(
@@ -350,7 +354,7 @@ def plot(
             last_time_step=last_time_step,
             bbox=normalize_bbox(bbox),
         )
-    except (RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     try:
@@ -365,6 +369,8 @@ def plot(
         if no_open:
             click.echo("--no-open: browser not launched; open the URL above (e.g. over an ssh -L tunnel).")
         serve(source, port=server_port, open_browser=not no_open, address=address, default_index=default_index)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
     finally:
         source.close()
 
@@ -372,10 +378,15 @@ def plot(
 def _plot_static(reference_path, comparison_path, variables, output, last_time_step, bbox, scale="auto") -> None:
     """Render the difference to a static image (one per requested variable) and exit."""
     from xdiff.core.main import normalize_bbox, normalize_variables
-    from xdiff.plotting.renderers.matplotlib_renderer import render_to_files, validate_output_extension
+    from xdiff.plotting.renderers.matplotlib_renderer import (
+        ensure_backend_available,
+        render_to_files,
+        validate_output_extension,
+    )
     from xdiff.plotting.spec import build_plot_spec
 
     try:
+        ensure_backend_available()
         validate_output_extension(output)
         # Static writes one image per requested variable, so keep the -v filter.
         spec = build_plot_spec(
@@ -388,7 +399,7 @@ def _plot_static(reference_path, comparison_path, variables, output, last_time_s
         for skipped in spec.skipped:
             click.echo(f"skipped {skipped.label}: {skipped.reason}", err=True)
         written = render_to_files(spec, output, scale=scale)
-    except (RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     for path in written:
         click.echo(f"wrote {path}")
@@ -402,7 +413,9 @@ def _default_variable_index(source, requested: tuple[str, ...]) -> int:
     """
     if not requested:
         return 0
-    wanted_names = {name.split("=")[0] for name in requested}
+    from xdiff.core.main import _parse_variable_spec
+
+    wanted_names = {_parse_variable_spec(spec)[0] for spec in requested}
     for index, handle in enumerate(source.variables):
         if handle.label.split(" -> ")[0] in wanted_names:
             return index

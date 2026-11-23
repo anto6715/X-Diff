@@ -478,6 +478,7 @@ def test_plot_passes_the_scale_to_the_static_renderer(monkeypatch, tmp_path):
     spec_module = importlib.import_module("xdiff.plotting.spec")
     captured = {}
 
+    monkeypatch.setattr(renderer, "ensure_backend_available", lambda: None)
     monkeypatch.setattr(spec_module, "build_plot_spec", lambda *args, **kwargs: SimpleNamespace(skipped=[]))
     monkeypatch.setattr(
         renderer, "render_to_files", lambda spec, output, *, scale: captured.update(scale=scale) or [output]
@@ -514,3 +515,84 @@ def test_files_compares_boolean_variables(tmp_path, comparison_flags, exit_code,
     # Identical flags used to fail with numpy's "boolean subtract is not supported", exit 1.
     assert result.exit_code == exit_code
     assert text in result.output
+
+
+def test_plot_unreadable_file_reports_clean_error_in_both_modes(tmp_path, monkeypatch):
+    bad_ref = tmp_path / "bad_ref.nc"
+    bad_cmp = tmp_path / "bad_cmp.nc"
+    bad_ref.write_text("not netcdf", encoding="utf-8")
+    bad_cmp.write_text("not netcdf", encoding="utf-8")
+
+    monkeypatch.setattr("xdiff.plotting.renderers.matplotlib_renderer.ensure_backend_available", lambda: None)
+    static = CliRunner().invoke(cli, ["plot", str(bad_ref), str(bad_cmp), "-o", str(tmp_path / "out.png")])
+    assert static.exit_code == 1
+    assert "Error:" in static.output
+    assert "Traceback" not in static.output
+
+    monkeypatch.setattr("xdiff.plotting.renderers.server.ensure_backend_available", lambda: None)
+    monkeypatch.setattr("xdiff.plotting.renderers.server.ensure_port_available", lambda _addr, _port: None)
+    live = CliRunner().invoke(cli, ["plot", str(bad_ref), str(bad_cmp), "--no-open"])
+    assert live.exit_code == 1
+    assert "Error:" in live.output
+    assert "Traceback" not in live.output
+
+
+def test_plot_static_checks_matplotlib_before_opening_datasets(tmp_path, monkeypatch):
+    ref = tmp_path / "ref.nc"
+    cmp = tmp_path / "cmp.nc"
+    ref.write_text("placeholder", encoding="utf-8")
+    cmp.write_text("placeholder", encoding="utf-8")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("build_plot_spec should not be called when matplotlib is missing")
+
+    monkeypatch.setattr("xdiff.plotting.renderers.matplotlib_renderer.ensure_backend_available", lambda: (_ for _ in ()).throw(RuntimeError("matplotlib is required for static plots")))
+    monkeypatch.setattr("xdiff.plotting.spec.build_plot_spec", boom)
+
+    result = CliRunner().invoke(cli, ["plot", str(ref), str(cmp), "-o", str(tmp_path / "out.png")])
+    assert result.exit_code == 1
+    assert "Error: matplotlib is required for static plots" in result.output
+
+
+def test_plot_rejects_malformed_variable_spec(tmp_path, monkeypatch):
+    ref = tmp_path / "ref.nc"
+    cmp = tmp_path / "cmp.nc"
+    ref.write_text("placeholder", encoding="utf-8")
+    cmp.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr("xdiff.plotting.renderers.server.ensure_backend_available", lambda: None)
+    monkeypatch.setattr("xdiff.plotting.renderers.server.ensure_port_available", lambda _addr, _port: None)
+
+    result = CliRunner().invoke(cli, ["plot", str(ref), str(cmp), "-v", "=temp"])
+    assert result.exit_code == 1
+    assert "Error: Invalid variable specification" in result.output
+
+
+def test_plot_port_bind_errors_distinguish_eacces_from_eaddrinuse(monkeypatch):
+    import errno
+    import sys
+    import types
+    from xdiff.plotting.renderers import server
+
+    def make_bind(err):
+        def _bind(_addr, _port):
+            raise err
+        return _bind
+
+    fake_util = types.SimpleNamespace(bind_sockets=make_bind(OSError(errno.EACCES, "Permission denied")))
+    monkeypatch.setitem(sys.modules, "bokeh", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "bokeh.server", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "bokeh.server.util", fake_util)
+
+    with pytest.raises(ValueError, match="cannot bind port 80 on localhost: Permission denied"):
+        server.ensure_port_available("localhost", 80)
+
+    fake_util.bind_sockets = make_bind(OSError(errno.EADDRINUSE, "Address already in use"))
+    with pytest.raises(ValueError, match="port 5006 on localhost is already in use"):
+        server.ensure_port_available("localhost", 5006)
+
+    fake_panel = types.SimpleNamespace(serve=lambda *a, **kw: (_ for _ in ()).throw(OSError(errno.EACCES, "Permission denied")))
+    monkeypatch.setattr(server, "_load_viz", lambda: (None, fake_panel))
+    monkeypatch.setattr(server, "_start_warm_up", lambda: None)
+    with pytest.raises(ValueError, match="cannot bind port 80 on localhost: Permission denied"):
+        server.serve(object(), port=80, open_browser=False)
