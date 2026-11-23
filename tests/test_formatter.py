@@ -1,4 +1,7 @@
+from io import StringIO
 from pathlib import Path
+
+from rich.console import Console
 
 from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.model.artifact import Artifact
@@ -80,7 +83,8 @@ def test_print_comparison_renders_exception_row_in_description_column(monkeypatc
 
     formatter.print_comparison(comparison)
 
-    assert captured["rows"] == [
+    # User text goes in as rich.text.Text (#100); str() gives its plain text.
+    assert [tuple(str(cell) for cell in row) for row in captured["rows"]] == [
         (formatter.FAILED, "-", "-", "-", "-", "-", "boom"),
     ]
 
@@ -230,11 +234,11 @@ def test_a_file_only_in_the_comparison_directory_names_the_side_it_is_on(monkeyp
 
     formatter.render_failed_comparisons_table([only_in_comparison])
 
-    assert captured["rows"] == [
+    assert [tuple(str(cell) for cell in row) for row in captured["rows"]] == [
         ("-", "cmp/extra.nc", "1/1", "Only in comparison", "Only in the comparison directory"),
     ]
-    assert formatter.build_comparison_title(only_in_comparison).startswith(
-        "[red]ONLY IN COMPARISON[/red] - vs cmp/extra.nc "
+    assert formatter.build_comparison_title(only_in_comparison).markup.startswith(
+        "[table.title][red]ONLY IN COMPARISON[/red] - vs cmp/extra.nc "
     )
 
 
@@ -261,8 +265,12 @@ def test_an_ambiguous_match_is_labelled_as_such(monkeypatch):
 
     formatter.render_failed_comparisons_table([ambiguous])
 
-    assert captured["rows"] == [("ref/x.nc", "-", "1/1", "Ambiguous match", message)]
-    assert formatter.build_comparison_title(ambiguous).startswith("[red]AMBIGUOUS[/red] ref/x.nc vs - ")
+    assert [tuple(str(cell) for cell in row) for row in captured["rows"]] == [
+        ("ref/x.nc", "-", "1/1", "Ambiguous match", message)
+    ]
+    assert formatter.build_comparison_title(ambiguous).markup.startswith(
+        "[table.title][red]AMBIGUOUS[/red] ref/x.nc vs - "
+    )
 
 
 def test_an_error_on_a_one_sided_comparison_is_not_labelled_as_a_missing_file():
@@ -275,3 +283,32 @@ def test_an_error_on_a_one_sided_comparison_is_not_labelled_as_a_missing_file():
 
     assert formatter.comparison_status_label(failed) == "[red]ERROR[/red]"
     assert formatter.comparison_failure_type(failed) == "Error"
+
+
+def test_print_report_shows_paths_names_and_messages_as_written(monkeypatch):
+    output = StringIO()
+    console = Console(file=output, width=400)  # wide enough to keep every cell on one line
+    monkeypatch.setattr(formatter, "Console", lambda: console)
+    differing = Comparison(
+        reference_artifact=Artifact.from_path(Path("exp[ctrl]/run:x:1[/b].nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp/a.nc")),
+        compare_results=[
+            CompareResult(variable="temp[degC]", description="Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]'")
+        ],
+    )
+    erroring = Comparison(
+        reference_artifact=Artifact.from_path(Path("ref/b.nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp/b[/x].nc")),
+        exception=RuntimeError("cannot read [/x] [bold]"),
+    )
+
+    formatter.print_report(ComparisonReport(request=object(), comparisons=[differing, erroring]))
+
+    # Rich read these strings as markup and emoji codes (#100): "[/b]" raised MarkupError and
+    # cut the report off, "[degC]" and "[s]" vanished, ":x:" became an emoji.
+    text = output.getvalue()
+    assert "FAILED exp[ctrl]/run:x:1[/b].nc vs cmp/a.nc (1/1 failed checks)" in text
+    assert "ERROR ref/b.nc vs cmp/b[/x].nc (1/1 failed checks)" in text
+    assert "temp[degC] (Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]')" in text  # failed table
+    assert text.count("exp[ctrl]/run:x:1[/b].nc") == 2  # title and failed table
+    assert text.count("cannot read [/x] [bold]") == 2  # details row and failed table

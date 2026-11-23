@@ -1,6 +1,8 @@
 from io import StringIO
 from pathlib import Path
 
+from rich.console import Console
+
 from xdiff.exceptions import NoMatchFound
 from xdiff.model import CompareResult, ComparisonReport
 from xdiff.model.artifact import Artifact
@@ -164,3 +166,24 @@ def test_live_result_line_for_a_file_only_in_the_comparison_directory():
     line = progress.format_live_result(comparison, rich_markup=False)
 
     assert line == "FAILED - vs extra.nc (Only in the comparison directory)"
+
+
+def test_live_result_line_shows_paths_and_reasons_as_written():
+    output = StringIO()
+    reporter = progress.RichProgressReporter(console=Console(file=output, width=400))
+    comparison = Comparison(
+        reference_artifact=Artifact.from_path(Path("exp[ctrl]/run:x:1[/b].nc")),
+        comparison_artifact=Artifact.from_path(Path("cmp/a.nc")),
+        compare_results=[
+            CompareResult(variable="temp[degC]", description="Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]'")
+        ],
+    )
+
+    # No progress bar is running, so the line goes straight to the console. Rich used to
+    # parse it as markup (#100): "[/b]" raised MarkupError and stopped the run.
+    reporter.on_comparison_complete(comparison, 1, 1)
+
+    assert output.getvalue() == (
+        "FAILED exp[ctrl]/run:x:1[/b].nc vs cmp/a.nc "
+        "(1/1 failed: temp[degC] (Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]'))\n"
+    )

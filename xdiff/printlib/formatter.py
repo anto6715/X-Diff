@@ -7,6 +7,7 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.model import CompareResult, ComparisonReport
@@ -17,6 +18,15 @@ FAILED_COMPARISON_COLUMNS = ["REFERENCE", "COMPARISON", "FAILED", "TYPE", "DETAI
 
 FAILED = "[red] :x: FAILED"
 PASSED = "[green] :heavy_check_mark: PASSED"
+
+
+def literal_text(value: object) -> Text:
+    """Return ``value`` (a path, a variable name, a message) as Rich text shown exactly as written.
+
+    Rich reads a plain string as markup and emoji codes: ``temp[degC]`` loses ``[degC]``,
+    ``[/b]`` raises ``MarkupError`` and ``:x:`` becomes an emoji. A ``Text`` is not parsed.
+    """
+    return Text(str(value))
 
 
 def get_result(cr: CompareResult) -> str:
@@ -74,7 +84,7 @@ def print_comparison(comparison: Comparison, console: Console | None = None) -> 
         table.add_column(column)
 
     if comparison.exception is not None:
-        table.add_row(FAILED, "-", "-", "-", "-", "-", str(comparison.exception))
+        table.add_row(FAILED, "-", "-", "-", "-", "-", literal_text(comparison.exception))
     elif len(comparison) == 0:
         table.add_row(FAILED, "-", "-", "-", "-", "-", "No comparable variables were selected")
     else:
@@ -86,8 +96,8 @@ def print_comparison(comparison: Comparison, console: Console | None = None) -> 
                 render(c.max_diff),
                 render(c.relative_error),
                 render(c.mask_equal),
-                render(c.variable),
-                render(result_detail(c)),
+                literal_text(c.variable),
+                literal_text(result_detail(c)),
             )
 
     console.print(table)
@@ -146,18 +156,22 @@ def render_failed_comparisons_table(failed_comparisons: list[Comparison]) -> Tab
 
     for comparison in failed_comparisons:
         table.add_row(
-            str(comparison.reference_file or "-"),
-            str(comparison.comparison_file or "-"),
+            literal_text(comparison.reference_file or "-"),
+            literal_text(comparison.comparison_file or "-"),
             f"{comparison_failed_check_count(comparison)}/{comparison_total_check_count(comparison)}",
             comparison_failure_type(comparison),
-            comparison_failure_details(comparison),
+            literal_text(comparison_failure_details(comparison)),
         )
 
     return table
 
 
-def build_comparison_title(comparison: Comparison) -> str:
-    """Return a status-rich title for one comparison table."""
+def build_comparison_title(comparison: Comparison) -> Text:
+    """Return a status-rich title for one comparison table.
+
+    The file paths are appended as plain text, never parsed as markup (see ``literal_text``).
+    A ``Text`` title does not get the table's default title style, so it is set here.
+    """
     if comparison.passed:
         check_summary = f"{comparison_total_check_count(comparison)} checks passed"
     else:
@@ -167,7 +181,10 @@ def build_comparison_title(comparison: Comparison) -> str:
 
     reference = comparison.reference_file or "-"
     target = comparison.comparison_file or "-"
-    return f"{comparison_status_label(comparison)} {reference} vs {target} [dim]({check_summary})[/dim]"
+    title = Text.from_markup(comparison_status_label(comparison), style="table.title")
+    title.append(f" {reference} vs {target} ")
+    title.append(f"({check_summary})", style="dim")
+    return title
 
 
 def comparison_status_label(comparison: Comparison) -> str:

@@ -514,3 +514,29 @@ def test_files_compares_boolean_variables(tmp_path, comparison_flags, exit_code,
     # Identical flags used to fail with numpy's "boolean subtract is not supported", exit 1.
     assert result.exit_code == exit_code
     assert text in result.output
+
+
+def test_files_report_shows_bracketed_paths_names_and_reasons(tmp_path):
+    import numpy as np
+    import xarray as xr
+
+    run = tmp_path / "run[" / "b]"  # the path contains "[/b]"
+    run.mkdir(parents=True)
+    lead = np.array([0, 3600], dtype="timedelta64[s]")
+    xr.Dataset({"lead": ("n", lead), "temp[degC]": ("n", [1.0, 2.0])}).to_netcdf(run / "ref.nc")
+    xr.Dataset({"lead": ("n", lead.astype("timedelta64[ns]")), "temp[degC]": ("n", [1.0, 3.0])}).to_netcdf(
+        tmp_path / "cmp.nc"
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["files", str(run / "ref.nc"), str(tmp_path / "cmp.nc"), "--no-progress"],
+        env={"COLUMNS": "400"},  # keep the table cells on one line
+    )
+
+    # The report used to abort with a MarkupError traceback on "[/b]", and drop "[s]",
+    # "[ns]" and "[degC]", so the two data types printed identically (#100).
+    assert isinstance(result.exception, SystemExit), result.exception  # exit 1, not a traceback
+    assert result.exit_code == 1
+    assert str(run / "ref.nc") in result.output
+    assert "lead (Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]'), temp[degC]" in result.output

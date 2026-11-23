@@ -8,6 +8,7 @@ import time
 from typing import TextIO
 
 from rich.console import Console
+from rich.highlighter import ReprHighlighter
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -18,6 +19,7 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from rich.text import Text
 
 from xdiff.model.comparison import Comparison
 from xdiff.model.report import ComparisonReport
@@ -27,6 +29,9 @@ from xdiff.printlib.formatter import (
     comparison_failure_details,
     comparison_total_check_count,
 )
+
+# The highlighter Rich applies to a printed string; a Text does not get it unless asked.
+_HIGHLIGHTER = ReprHighlighter()
 
 
 class ProgressReporter:
@@ -266,8 +271,11 @@ def _format_summary(
     return f"[bold]{summary}[/bold]"
 
 
-def format_live_result(comparison: Comparison, *, rich_markup: bool = True) -> str:
-    """Format a short per-comparison result line for live progress output."""
+def format_live_result(comparison: Comparison, *, rich_markup: bool = True) -> str | Text:
+    """Format a short per-comparison result line for live progress output.
+
+    With ``rich_markup`` the line is a styled ``Text``, otherwise a plain string.
+    """
     target = f"{comparison.reference_file or '-'} vs {comparison.comparison_file or '-'}"
     if comparison.passed:
         detail = f"{pluralize(comparison_total_check_count(comparison), 'check')} passed"
@@ -303,7 +311,9 @@ def _format_status_line(
     *,
     rich_markup: bool,
     style: str,
-) -> str:
+) -> str | Text:
     if not rich_markup:
         return f"{status} {target} ({detail})"
-    return f"[{style}]{status}[/{style}] {target} [dim]({detail})[/dim]"
+    # Paths and failure reasons go in as plain text: Rich would parse them as markup and
+    # emoji codes (see formatter.literal_text). Highlight the line as Rich highlights a string.
+    return _HIGHLIGHTER(Text.assemble((status, style), f" {target} ", (f"({detail})", "dim")))
