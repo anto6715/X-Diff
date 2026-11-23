@@ -165,13 +165,13 @@ uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
 uv run xdiff dirs folder1 folder2 -f "**/*.nc"
 ```
 
-Each file in **folder1** is paired with at most one file in **folder2**: first the file at the same relative path. The
-files left over then pair by file name, so that the same file in a different subdirectory is still found, and then by
-`--common-pattern` (see below), in both cases only when exactly one leftover file on each side has that name or match.
-A file left without a counterpart fails the run as `Only in the reference directory` or
-`Only in the comparison directory`. When a name or a pattern match is shared by more than one leftover file in either
-folder, none of those files is paired: each fails as `AMBIGUOUS`, naming the files on the other side, and a narrower
-`-f` or a more specific `--common-pattern` resolves it.
+Each file in **folder1** is paired with at most one file in **folder2**, in three steps: by relative path, then by
+file name, so that the same file in a different subdirectory is still found, then by `--common-pattern` (see below).
+Each step looks only at the files that no earlier step paired or reported. Files sharing a name or a pattern match
+pair when there is exactly one on each side; when there are more on either side, none of them is paired: each fails as
+`AMBIGUOUS`, naming the files on the other side, and a narrower `-f` or a more specific `--common-pattern` resolves
+it. A file left without a counterpart fails the run as `Only in the reference directory` or
+`Only in the comparison directory`.
 
 ### Compare files with different filenames
 

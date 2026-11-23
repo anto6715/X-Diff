@@ -11,8 +11,12 @@ class FileSystemArtifactDiscovery:
     """Discover artifacts from a directory using a glob filter."""
 
     def discover(self, directory: Path, filter_name: str) -> list[Artifact]:
+        # A set: on Python 3.13+ a pattern with two ``**``, such as ``**/*/**/*.nc``, yields some
+        # paths twice, and the matcher would find the duplicate ambiguous.
         return [
-            Artifact.from_path(path, root=directory) for path in sorted(directory.glob(filter_name)) if path.is_file()
+            Artifact.from_path(path, root=directory)
+            for path in sorted(set(directory.glob(filter_name)))
+            if path.is_file()
         ]
 
     def list_paths(self, directory: Path, filter_name: str) -> list[Path]:

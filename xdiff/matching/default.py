@@ -13,12 +13,12 @@ from xdiff.utils.regex import common_pattern_key
 class DefaultArtifactMatcher:
     """Pair each file with at most one file under the other root.
 
-    Files pair by relative path first. A file still unpaired falls back to its file name, then
-    to what ``common_pattern`` finds in its name, looking only at files still unpaired under the
-    other root. A fallback pairs two files only when each is the other's sole match. When files
-    sharing a name (or a pattern match) number more than one under either root, none of them is
-    paired: each gets a one-sided match listing its ``candidates`` under the other root. A file
-    nothing matches gets a one-sided match without candidates.
+    Three steps, each keyed on one property: the relative path, the file name, then what
+    ``common_pattern`` finds in the name. Each step looks only at the files that no earlier step
+    settled, and settles every group of files sharing a key across both roots: one file per root
+    makes a pair; more than one under either root makes each of them a one-sided match listing
+    its ``candidates`` under the other root, and they leave the later steps too. A file no step
+    settled gets a one-sided match without candidates.
     """
 
     def match(

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from xdiff.core.service import ComparisonService, compare_match
+from xdiff.discovery import FileSystemArtifactDiscovery
 from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.matching import DefaultArtifactMatcher
 from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest, CompareResult
@@ -448,6 +449,16 @@ def _pairs(matches):
     ]
 
 
+def test_filesystem_discovery_lists_each_file_once(tmp_path):
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "a" / "b" / "x.nc").touch()
+
+    artifacts = FileSystemArtifactDiscovery().discover(tmp_path, "**/*/**/*.nc")
+
+    # Python 3.13+ globs a/b/x.nc twice with this pattern; the matcher would then report it as ambiguous.
+    assert [artifact.relative_path for artifact in artifacts] == [Path("a/b/x.nc")]
+
+
 def test_default_artifact_matcher_does_not_cross_pair_same_named_files_in_different_subdirectories():
     matcher = DefaultArtifactMatcher()
     references = [_netcdf("ref/x.nc"), _netcdf("ref/sub/x.nc")]
@@ -538,6 +549,23 @@ def test_default_artifact_matcher_tries_the_common_pattern_only_on_unpaired_file
         ("ref/exp1_1982.nc", "cmp/exp1_1982.nc", []),
         ("ref/exp1_1983.nc", "cmp/exp2_1983.nc", []),
         (None, "cmp/exp2_1982.nc", []),
+    ]
+
+
+def test_default_artifact_matcher_leaves_files_reported_ambiguous_out_of_the_later_steps():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/a/f_1.nc"), _netcdf("ref/b/f_1.nc"), _netcdf("ref/h_1.nc")]
+    comparisons = [_netcdf("cmp/f_1.nc"), _netcdf("cmp/g_1.nc")]
+
+    matches = matcher.match(references, comparisons, r"_\d")
+
+    # The f_1.nc files are settled as ambiguous by the file-name step, so the pattern step
+    # sees only h_1.nc and g_1.nc.
+    assert _pairs(matches) == [
+        ("ref/a/f_1.nc", None, ["cmp/f_1.nc"]),
+        ("ref/b/f_1.nc", None, ["cmp/f_1.nc"]),
+        ("ref/h_1.nc", "cmp/g_1.nc", []),
+        (None, "cmp/f_1.nc", ["ref/a/f_1.nc", "ref/b/f_1.nc"]),
     ]
 
 
