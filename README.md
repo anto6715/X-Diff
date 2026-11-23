@@ -84,7 +84,7 @@ Commands:
 
 ### Reading the result
 
-Each variable compared by value gets one row with the minimum and maximum difference (reference minus comparison), the maximum relative error, and whether the two missing-value masks are equal. The relative error is relative to the reference: the largest `|reference - comparison| / |reference|` among the points that differ. A difference where the reference is `0` shows `inf`, and dates have no relative error: they show `nan` when they differ. A variable **passes only when it is identical on both sides**: same shape and data type, both differences and the relative error `0`, and equal masks. There is no tolerance, so a difference of `1e-12` is reported as a failure. A file pair passes when at least one variable was compared and all of them passed; a file with no counterpart, a file that cannot be read, and a pair with no comparable variables are failures. In `xdiff dirs`, a file found in only one directory fails as `Only in the reference directory` or `Only in the comparison directory`.
+Each variable compared by value gets one row with the minimum and maximum difference (reference minus comparison), the maximum relative error, and whether the two missing-value masks are equal. The relative error is relative to the reference: the largest `|reference - comparison| / |reference|` among the points that differ. A difference where the reference is `0` shows `inf`, and dates have no relative error: they show `nan` when they differ. A variable **passes only when it is identical on both sides**: same shape and data type, both differences and the relative error `0`, and equal masks. There is no tolerance, so a difference of `1e-12` is reported as a failure. A file pair passes when at least one variable was compared and all of them passed; a file with no counterpart, a file that cannot be read, and a pair with no comparable variables are failures. In `xdiff dirs`, a file found in only one directory fails as `Only in the reference directory` or `Only in the comparison directory`, and a file that cannot be paired one to one, because its name or `--common-pattern` match is shared by several files, fails as `AMBIGUOUS` (see [Filter files](#filter-files)).
 
 By default both files are checked in full, each name against the same name in the other file. Every data variable and every coordinate, including auxiliary ones such as 2-D `nav_lon`/`nav_lat`, is compared by value. Text, booleans, and dates in a non-standard calendar such as `noleap` or `360_day`, have no numeric difference: they are compared for equality, and the report says `equality only` or how many values differ. A dimension with no coordinate variable is compared by size (`size only`). A variable found in only one of the files fails as `Only in the reference file` or `Only in the comparison file`, and a dimension as `Dimension only in the reference file` or `Dimension only in the comparison file`. With `-v`, only the named variables are compared, text included. A name that a file does not have fails as `Not in the reference file`, `Not in the comparison file` or `Not in either file`, so a typo cannot pass unnoticed, and a dimension with no coordinate variable is compared by size, as without `-v`. With `--last-time-step`, a time axis named with `-v` (a time coordinate, or a time dimension with no coordinate variable) fails, because only the last step is compared. In `xdiff dirs`, `-v` applies to every file pair, so a named variable must be in each pair: to check variables kept in different files (`grid_T`, `grid_U`), run once per `--filter`. Not compared: attributes. Two inputs that differ only in attributes still pass.
 
@@ -157,13 +157,21 @@ Use `--port N` if `5006` is taken (a busy port fails immediately with a clear me
 
 ### Filter files
 
-By default **xdiff** pairs each file in **folder1** with the files in **folder2** that have the same relative path or the
-same file name, and a file left without a counterpart in either folder fails the run. Using filters, it is possible to
-select only a subset of input files. For example:
+By default **xdiff** compares the `*.nc` files directly inside **folder1** and **folder2**. Use `-f` to select a subset,
+or a pattern with a directory part to look into subdirectories (`**/` also includes the top folder):
 
 ```shell
 uv run xdiff dirs folder1 folder2 -f "*_grid_T.nc"
+uv run xdiff dirs folder1 folder2 -f "**/*.nc"
 ```
+
+Each file in **folder1** is paired with at most one file in **folder2**: first the file at the same relative path. The
+files left over then pair by file name, so that the same file in a different subdirectory is still found, and then by
+`--common-pattern` (see below), in both cases only when exactly one leftover file on each side has that name or match.
+A file left without a counterpart fails the run as `Only in the reference directory` or
+`Only in the comparison directory`. When a name or a pattern match is shared by more than one leftover file in either
+folder, none of those files is paired: each fails as `AMBIGUOUS`, naming the files on the other side, and a narrower
+`-f` or a more specific `--common-pattern` resolves it.
 
 ### Compare files with different filenames
 
@@ -186,7 +194,10 @@ uv run xdiff dirs folder1 folder2 --common-pattern "\d{8}"
 ```
 
 The pattern is matched against both filenames using `re.findall`. Two files are considered a pair when the
-pattern produces the same match in both names — in this case the shared date `19820101`.
+pattern produces the same match in both names — in this case the shared date `19820101`. It applies only to files with
+no counterpart at the same relative path or with the same name, and it must single out one file per folder: if each
+date has a `grid_T` and a `grid_U` file, `\d{8}` matches two files on each side and all four fail as `AMBIGUOUS`;
+use `"\d{8}_grid_[TU]"` instead.
 
 ### Dask file-level execution
 

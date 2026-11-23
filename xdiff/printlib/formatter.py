@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from xdiff.exceptions import NoMatchFound
+from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.model import CompareResult, ComparisonReport
 from xdiff.model.comparison import Comparison
 
@@ -177,6 +177,8 @@ def comparison_status_label(comparison: Comparison) -> str:
     missing_side = _missing_side(comparison)
     if missing_side is not None:
         return f"[red]ONLY IN {missing_side.upper()}[/red]"
+    if isinstance(comparison.exception, AmbiguousMatch):
+        return "[red]AMBIGUOUS[/red]"
     if comparison.exception is not None:
         return "[red]ERROR[/red]"
     if len(comparison) == 0:
@@ -214,6 +216,8 @@ def comparison_failure_type(comparison: Comparison) -> str:
     missing_side = _missing_side(comparison)
     if missing_side is not None:
         return f"Only in {missing_side}"
+    if isinstance(comparison.exception, AmbiguousMatch):
+        return "Ambiguous match"
     if comparison.exception is not None:
         return "Error"
     if len(comparison) == 0:

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from collections.abc import Callable, Hashable
+
 from xdiff.model.artifact import Artifact
 from xdiff.model.match import ArtifactMatch
-from xdiff.utils.regex import common_pattern_exists
+from xdiff.utils.regex import common_pattern_key
 
 
 class DefaultArtifactMatcher:
-    """Pair artifacts by relative path, by file name, or by an optional common pattern.
+    """Pair each file with at most one file under the other root.
 
-    A file found under only one root gets a match whose other side is ``None``.
+    Files pair by relative path first. A file still unpaired falls back to its file name, then
+    to what ``common_pattern`` finds in its name, looking only at files still unpaired under the
+    other root. A fallback pairs two files only when each is the other's sole match. When files
+    sharing a name (or a pattern match) number more than one under either root, none of them is
+    paired: each gets a one-sided match listing its ``candidates`` under the other root. A file
+    nothing matches gets a one-sided match without candidates.
     """
 
     def match(
@@ -19,36 +27,56 @@ class DefaultArtifactMatcher:
         comparison_artifacts: list[Artifact],
         common_pattern: str | None = None,
     ) -> list[ArtifactMatch]:
-        matches: list[ArtifactMatch] = []
-        paired: set[Artifact] = set()
+        reference_matches: dict[Artifact, ArtifactMatch] = {}
+        comparison_matches: dict[Artifact, ArtifactMatch] = {}
+        keys: list[Callable[[Artifact], Hashable | None]] = [
+            lambda artifact: artifact.relative_path,
+            lambda artifact: artifact.path.name,
+            lambda artifact: common_pattern_key(artifact.path.name, common_pattern),
+        ]
 
-        for reference in reference_artifacts:
-            matched_artifacts: list[Artifact] = []
-            for comparison in comparison_artifacts:
-                if self._is_match(reference, comparison, common_pattern):
-                    matched_artifacts.append(comparison)
+        for key in keys:
+            references_left = [artifact for artifact in reference_artifacts if artifact not in reference_matches]
+            comparisons_left = [artifact for artifact in comparison_artifacts if artifact not in comparison_matches]
+            if not references_left or not comparisons_left:
+                break
 
-            if not matched_artifacts:
-                matches.append(ArtifactMatch(reference=reference, comparison=None))
-                continue
+            comparisons_by_key = _group_by(comparisons_left, key)
+            for value, references in _group_by(references_left, key).items():
+                comparisons = comparisons_by_key.get(value)
+                if comparisons is None:
+                    continue
+                if len(references) == 1 and len(comparisons) == 1:
+                    pair = ArtifactMatch(reference=references[0], comparison=comparisons[0])
+                    reference_matches[references[0]] = comparison_matches[comparisons[0]] = pair
+                    continue
+                for reference in references:
+                    reference_matches[reference] = ArtifactMatch(
+                        reference=reference, comparison=None, candidates=tuple(comparisons)
+                    )
+                for comparison in comparisons:
+                    comparison_matches[comparison] = ArtifactMatch(
+                        reference=None, comparison=comparison, candidates=tuple(references)
+                    )
 
-            for comparison in matched_artifacts:
-                matches.append(ArtifactMatch(reference=reference, comparison=comparison))
-            paired.update(matched_artifacts)
-
-        # A comparison file no reference file paired with is a difference between the two
-        # trees too: report it (after the pairs, in discovery order) so the run cannot pass.
-        matches.extend(
-            ArtifactMatch(reference=None, comparison=comparison)
-            for comparison in comparison_artifacts
-            if comparison not in paired
-        )
+        # Reference files in discovery order, each paired or not; then the comparison files left
+        # unpaired, so a file found only under the comparison root cannot let the run pass.
+        matches = [
+            reference_matches.get(reference) or ArtifactMatch(reference=reference, comparison=None)
+            for reference in reference_artifacts
+        ]
+        for comparison in comparison_artifacts:
+            match = comparison_matches.get(comparison) or ArtifactMatch(reference=None, comparison=comparison)
+            if match.reference is None:
+                matches.append(match)
         return matches
 
-    @staticmethod
-    def _is_match(reference: Artifact, comparison: Artifact, common_pattern: str | None) -> bool:
-        return (
-            reference.relative_path == comparison.relative_path
-            or reference.path.name == comparison.path.name
-            or common_pattern_exists(reference.path.name, comparison.path.name, common_pattern)
-        )
+
+def _group_by(artifacts: list[Artifact], key: Callable[[Artifact], Hashable | None]) -> dict[Hashable, list[Artifact]]:
+    """Group artifacts by ``key``, in their order, leaving out those whose key is ``None``."""
+    groups: dict[Hashable, list[Artifact]] = defaultdict(list)
+    for artifact in artifacts:
+        value = key(artifact)
+        if value is not None:
+            groups[value].append(artifact)
+    return groups

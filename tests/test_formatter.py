@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from xdiff.exceptions import NoMatchFound
+from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.model.artifact import Artifact
 from xdiff.model.compare_result import CompareResult
 from xdiff.model.comparison import Comparison
@@ -236,6 +236,33 @@ def test_a_file_only_in_the_comparison_directory_names_the_side_it_is_on(monkeyp
     assert formatter.build_comparison_title(only_in_comparison).startswith(
         "[red]ONLY IN COMPARISON[/red] - vs cmp/extra.nc "
     )
+
+
+def test_an_ambiguous_match_is_labelled_as_such(monkeypatch):
+    captured = {}
+
+    class FakeTable:
+        def __init__(self, *args, **kwargs):
+            captured["rows"] = []
+
+        def add_column(self, *_args, **_kwargs):
+            return None
+
+        def add_row(self, *values):
+            captured["rows"].append(values)
+
+    monkeypatch.setattr(formatter, "Table", FakeTable)
+    message = "Same file name as 2 files in the comparison directory: a/x.nc, b/x.nc"
+    ambiguous = Comparison(
+        reference_artifact=Artifact.from_path(Path("ref/x.nc")),
+        comparison_artifact=None,
+        exception=AmbiguousMatch(message),
+    )
+
+    formatter.render_failed_comparisons_table([ambiguous])
+
+    assert captured["rows"] == [("ref/x.nc", "-", "1/1", "Ambiguous match", message)]
+    assert formatter.build_comparison_title(ambiguous).startswith("[red]AMBIGUOUS[/red] ref/x.nc vs - ")
 
 
 def test_an_error_on_a_one_sided_comparison_is_not_labelled_as_a_missing_file():

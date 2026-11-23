@@ -395,6 +395,48 @@ def test_dirs_fails_on_a_file_only_in_the_comparison_directory(tmp_path):
     assert "1 passed, 1 failed" in result.output
 
 
+def test_dirs_fails_on_a_subdirectory_file_missing_from_the_comparison_directory(tmp_path):
+    import xarray as xr
+
+    for directory in ("ref/sub", "cmp"):
+        (tmp_path / directory).mkdir(parents=True)
+    for path in ("ref/x.nc", "ref/sub/x.nc", "cmp/x.nc"):
+        xr.Dataset({"temp": ("x", [1.0, 2.0])}).to_netcdf(tmp_path / path)
+
+    result = CliRunner().invoke(
+        cli,
+        ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "-f", "**/*.nc", "--no-progress"],
+        env={"COLUMNS": "200"},  # keep the table cells on one line
+    )
+
+    # ref/sub/x.nc used to pair with cmp/x.nc by file name, and the run passed.
+    assert result.exit_code == 1
+    assert "ONLY IN REFERENCE" in result.output
+    assert "1 passed, 1 failed" in result.output
+
+
+def test_dirs_fails_on_an_ambiguous_file_name(tmp_path):
+    import xarray as xr
+
+    for directory in ("ref", "cmp/a", "cmp/b"):
+        (tmp_path / directory).mkdir(parents=True)
+    for path in ("ref/sub/x.nc", "cmp/a/x.nc", "cmp/b/x.nc"):
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        xr.Dataset({"temp": ("x", [1.0, 2.0])}).to_netcdf(tmp_path / path)
+
+    result = CliRunner().invoke(
+        cli,
+        ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "-f", "*/*.nc", "--no-progress"],
+        env={"COLUMNS": "200"},
+    )
+
+    # ref/sub/x.nc used to be compared with both files, and the run passed.
+    assert result.exit_code == 1
+    assert "AMBIGUOUS" in result.output
+    assert "Same file name as 2 files in the comparison directory: a/x.nc, b/x.nc" in result.output
+    assert "0 passed, 3 failed" in result.output
+
+
 def test_files_fails_on_a_variable_only_in_the_comparison_file(tmp_path):
     import xarray as xr
 

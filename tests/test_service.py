@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from xdiff.core.service import ComparisonService
-from xdiff.exceptions import NoMatchFound
+from xdiff.core.service import ComparisonService, compare_match
+from xdiff.exceptions import AmbiguousMatch, NoMatchFound
 from xdiff.matching import DefaultArtifactMatcher
 from xdiff.model import Artifact, ArtifactKind, CompareMode, CompareRequest, CompareResult
 from xdiff.model.comparison import Comparison
@@ -429,6 +429,151 @@ def test_default_artifact_matcher_reports_comparison_files_without_a_reference()
 def test_artifact_match_needs_at_least_one_artifact():
     with pytest.raises(ValueError, match="at least one artifact"):
         ArtifactMatch(reference=None, comparison=None)
+
+
+def test_artifact_match_rejects_candidates_on_a_pair():
+    with pytest.raises(ValueError, match="Only an unpaired artifact"):
+        ArtifactMatch(reference=_netcdf("ref/a.nc"), comparison=_netcdf("cmp/a.nc"), candidates=(_netcdf("cmp/b.nc"),))
+
+
+def _pairs(matches):
+    """Each match as (reference path, comparison path, candidate paths), with ``None`` for a missing side."""
+    return [
+        (
+            str(match.reference.path) if match.reference else None,
+            str(match.comparison.path) if match.comparison else None,
+            [str(candidate.path) for candidate in match.candidates],
+        )
+        for match in matches
+    ]
+
+
+def test_default_artifact_matcher_does_not_cross_pair_same_named_files_in_different_subdirectories():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/x.nc"), _netcdf("ref/sub/x.nc")]
+    comparisons = [_netcdf("cmp/x.nc"), _netcdf("cmp/sub/x.nc")]
+
+    matches = matcher.match(references, comparisons)
+
+    # Each file used to pair with both same-named files: 4 pairs instead of 2.
+    assert _pairs(matches) == [("ref/x.nc", "cmp/x.nc", []), ("ref/sub/x.nc", "cmp/sub/x.nc", [])]
+
+
+def test_default_artifact_matcher_reports_a_file_whose_relative_path_is_missing():
+    matcher = DefaultArtifactMatcher()
+
+    matches = matcher.match([_netcdf("ref/x.nc"), _netcdf("ref/sub/x.nc")], [_netcdf("cmp/x.nc")])
+
+    # sub/x.nc used to pair with cmp/x.nc by file name, so the run passed when the two
+    # files held the same data although the comparison directory has no sub/x.nc.
+    assert _pairs(matches) == [("ref/x.nc", "cmp/x.nc", []), ("ref/sub/x.nc", None, [])]
+
+
+def test_default_artifact_matcher_falls_back_to_the_file_name_among_unpaired_files():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/a/x.nc"), _netcdf("ref/b/x.nc")]
+    comparisons = [_netcdf("cmp/a/x.nc"), _netcdf("cmp/c/x.nc")]
+
+    matches = matcher.match(references, comparisons)
+
+    # a/x.nc pairs by relative path; b/x.nc and c/x.nc are then each other's only
+    # unpaired file with that name.
+    assert _pairs(matches) == [("ref/a/x.nc", "cmp/a/x.nc", []), ("ref/b/x.nc", "cmp/c/x.nc", [])]
+
+
+def test_default_artifact_matcher_reports_an_ambiguous_file_name_on_both_sides():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/x.nc"), _netcdf("ref/y.nc")]
+    comparisons = [_netcdf("cmp/a/x.nc"), _netcdf("cmp/y.nc"), _netcdf("cmp/b/x.nc")]
+
+    matches = matcher.match(references, comparisons)
+
+    # Reference files in order, then the unpaired comparison files in order.
+    assert _pairs(matches) == [
+        ("ref/x.nc", None, ["cmp/a/x.nc", "cmp/b/x.nc"]),
+        ("ref/y.nc", "cmp/y.nc", []),
+        (None, "cmp/a/x.nc", ["ref/x.nc"]),
+        (None, "cmp/b/x.nc", ["ref/x.nc"]),
+    ]
+
+
+def test_default_artifact_matcher_reports_a_comparison_file_matching_several_reference_files():
+    matcher = DefaultArtifactMatcher()
+
+    matches = matcher.match([_netcdf("ref/a/x.nc"), _netcdf("ref/b/x.nc")], [_netcdf("cmp/x.nc")])
+
+    # Pairing cmp/x.nc with the first reference file would be arbitrary.
+    assert _pairs(matches) == [
+        ("ref/a/x.nc", None, ["cmp/x.nc"]),
+        ("ref/b/x.nc", None, ["cmp/x.nc"]),
+        (None, "cmp/x.nc", ["ref/a/x.nc", "ref/b/x.nc"]),
+    ]
+
+
+def test_default_artifact_matcher_reports_an_ambiguous_common_pattern():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/exp1_19820101_grid_T.nc"), _netcdf("ref/exp1_19820101_grid_U.nc")]
+    comparisons = [_netcdf("cmp/exp2_19820101_grid_T.nc"), _netcdf("cmp/exp2_19820101_grid_U.nc")]
+
+    ambiguous = matcher.match(references, comparisons, r"\d{8}")
+    paired = matcher.match(references, comparisons, r"\d{8}_grid_[TU]")
+
+    # The date alone does not tell grid_T from grid_U: each file used to pair with both.
+    assert [match.candidates for match in ambiguous] == [tuple(comparisons)] * 2 + [tuple(references)] * 2
+    assert _pairs(paired) == [
+        ("ref/exp1_19820101_grid_T.nc", "cmp/exp2_19820101_grid_T.nc", []),
+        ("ref/exp1_19820101_grid_U.nc", "cmp/exp2_19820101_grid_U.nc", []),
+    ]
+
+
+def test_default_artifact_matcher_tries_the_common_pattern_only_on_unpaired_files():
+    matcher = DefaultArtifactMatcher()
+    references = [_netcdf("ref/exp1_1982.nc"), _netcdf("ref/exp1_1983.nc")]
+    comparisons = [_netcdf("cmp/exp1_1982.nc"), _netcdf("cmp/exp2_1982.nc"), _netcdf("cmp/exp2_1983.nc")]
+
+    matches = matcher.match(references, comparisons, r"\d{4}")
+
+    # exp1_1982.nc pairs by relative path, so exp2_1982.nc is no longer one of its matches.
+    assert _pairs(matches) == [
+        ("ref/exp1_1982.nc", "cmp/exp1_1982.nc", []),
+        ("ref/exp1_1983.nc", "cmp/exp2_1983.nc", []),
+        (None, "cmp/exp2_1982.nc", []),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("match", "message"),
+    [
+        (
+            ArtifactMatch(_netcdf("ref/x.nc"), None, candidates=(_netcdf("cmp/a/x.nc"), _netcdf("cmp/b/x.nc"))),
+            "Same file name as 2 files in the comparison directory: a/x.nc, b/x.nc",
+        ),
+        (
+            ArtifactMatch(None, _netcdf("cmp/x.nc"), candidates=(_netcdf("ref/a/x.nc"), _netcdf("ref/b/x.nc"))),
+            "Same file name as 2 files in the reference directory: a/x.nc, b/x.nc",
+        ),
+        (
+            ArtifactMatch(_netcdf("ref/a/x.nc"), None, candidates=(_netcdf("cmp/x.nc"),)),
+            "Same file name as x.nc in the comparison directory, which also matches other files in the reference "
+            "directory",
+        ),
+        (
+            ArtifactMatch(_netcdf("ref/e1_0101.nc"), None, candidates=(_netcdf("cmp/e2_0101.nc"),)),
+            "Same --common-pattern match as e2_0101.nc in the comparison directory, which also matches other files "
+            "in the reference directory",
+        ),
+        (
+            ArtifactMatch(None, _netcdf("cmp/x.nc"), candidates=tuple(_netcdf(f"ref/{d}/x.nc") for d in "abcde")),
+            "Same file name as 5 files in the reference directory: a/x.nc, b/x.nc, c/x.nc (+2 more)",
+        ),
+    ],
+)
+def test_compare_match_fails_an_ambiguous_match_naming_the_candidates(match, message):
+    comparison = compare_match(match, make_request(), comparators={})
+
+    assert isinstance(comparison.exception, AmbiguousMatch)
+    assert str(comparison.exception) == message
+    assert not comparison.passed
 
 
 def test_comparison_service_fails_a_file_only_in_the_comparison_directory():

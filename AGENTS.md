@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Overview
-`xdiff` is a general-purpose tool for exploring differences between datasets (PyPI distribution `xdiffly`, CLI command and import package `xdiff`). netCDF is the only comparator today; the architecture is format-agnostic (see "adding a new artifact type"). It discovers artifacts in two directory trees, matches them by filename or a common regex pattern, and produces a rich terminal report with per-variable numeric metrics. Python 3.11–3.14 is supported; the local environment pins 3.14.6 (see `.python-version`).
+`xdiff` is a general-purpose tool for exploring differences between datasets (PyPI distribution `xdiffly`, CLI command and import package `xdiff`). netCDF is the only comparator today; the architecture is format-agnostic (see "adding a new artifact type"). It discovers artifacts in two directory trees, pairs them by relative path, file name or a common regex pattern, and produces a rich terminal report with per-variable numeric metrics. Python 3.11–3.14 is supported; the local environment pins 3.14.6 (see `.python-version`).
 
 ## Project Structure & Module Organization
 
@@ -20,8 +20,8 @@ xdiff/
 ├── discovery/
 │   └── filesystem.py  FileSystemArtifactDiscovery: glob-based artifact discovery
 ├── matching/
-│   └── default.py   DefaultArtifactMatcher: pairs by relative path, file name or common pattern; unpaired files become one-sided matches
-├── exceptions/      Domain exceptions: LastTimestepTimeCheckException,
+│   └── default.py   DefaultArtifactMatcher: pairs one to one by relative path, then file name, then common pattern; unpaired or ambiguous files become one-sided matches
+├── exceptions/      Domain exceptions: AmbiguousMatch, LastTimestepTimeCheckException,
 │                    NoMatchFound, UnsupportedArtifactTypeError
 ├── model/           Result objects: Artifact, ArtifactKind, ArtifactMatch, BoundingBox, CompareMode,
 │                    CompareRequest, CompareResult, Comparison, ComparisonReport
@@ -34,7 +34,7 @@ xdiff/
 │                    NullProgressReporter) + create_progress_reporter() factory
 ├── utils/
 │   ├── log.py       Logging configuration helper
-│   └── regex.py     common_pattern_exists() for filename matching
+│   └── regex.py     common_pattern_key() / common_pattern_exists() for filename matching
 └── conf/
     └── global_settings.py  Default settings (DEFAULT_NAME_TO_COMPARE, DEFAULT_COMMON_PATTERN, …)
 ```

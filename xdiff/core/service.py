@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from xdiff.discovery import FileSystemArtifactDiscovery
-from xdiff.exceptions import NoMatchFound, UnsupportedArtifactTypeError
+from xdiff.exceptions import AmbiguousMatch, NoMatchFound, UnsupportedArtifactTypeError
 from xdiff.matching import DefaultArtifactMatcher
 from xdiff.model.artifact import Artifact
 from xdiff.model.comparison import Comparison
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 ONLY_IN_REFERENCE = "Only in the reference directory"
 ONLY_IN_COMPARISON = "Only in the comparison directory"
+_MAX_LISTED_CANDIDATES = 3
 
 
 def load_default_comparators() -> list[ArtifactComparator]:
@@ -41,7 +42,7 @@ def compare_match(
         return Comparison(
             reference_artifact=match.reference,
             comparison_artifact=match.comparison,
-            exception=NoMatchFound(ONLY_IN_COMPARISON if match.reference is None else ONLY_IN_REFERENCE),
+            exception=_unpaired_exception(match),
         )
 
     if match.reference.kind != match.comparison.kind:
@@ -69,6 +70,29 @@ def compare_match(
             comparison_artifact=match.comparison,
             exception=exc,
         )
+
+
+def _unpaired_exception(match: ArtifactMatch) -> Exception:
+    """Explain why the one file of a one-sided match was left unpaired."""
+    if match.reference is None:
+        artifact, own_side, other_side = match.comparison, "comparison", "reference"
+    else:
+        artifact, own_side, other_side = match.reference, "reference", "comparison"
+    if not match.candidates:
+        return NoMatchFound(ONLY_IN_COMPARISON if own_side == "comparison" else ONLY_IN_REFERENCE)
+
+    # A --common-pattern group never holds two files with the same name on opposite sides:
+    # the file-name step, which runs first, has already settled those.
+    shared = "file name" if match.candidates[0].path.name == artifact.path.name else "--common-pattern match"
+    listed = ", ".join(str(candidate.relative_path) for candidate in match.candidates[:_MAX_LISTED_CANDIDATES])
+    if len(match.candidates) > _MAX_LISTED_CANDIDATES:
+        listed += f" (+{len(match.candidates) - _MAX_LISTED_CANDIDATES} more)"
+    if len(match.candidates) == 1:
+        return AmbiguousMatch(
+            f"Same {shared} as {listed} in the {other_side} directory, "
+            f"which also matches other files in the {own_side} directory"
+        )
+    return AmbiguousMatch(f"Same {shared} as {len(match.candidates)} files in the {other_side} directory: {listed}")
 
 
 class ComparisonService:
