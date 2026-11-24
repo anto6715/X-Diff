@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import re
 from pathlib import Path
 
 import click
@@ -21,6 +22,25 @@ def _validate_netcdf_file(ctx, param, value: Path | None) -> Path | None:
 
     if value.suffix.lower() != ".nc":
         raise click.BadParameter("only .nc files are supported by the files command")
+
+    return value
+
+
+def _validate_common_pattern(ctx, param, value: str | None) -> str | None:
+    """Compile --common-pattern up front (issue #102).
+
+    An invalid pattern used to abort mid-run with an uncaught re.PatternError,
+    or pass silently when every file paired by relative path or name. Compiling
+    at parse time fails as a usage error naming the option, before any
+    discovery or comparison.
+    """
+    if value is None:
+        return value
+
+    try:
+        re.compile(value)
+    except re.error as exc:
+        raise click.BadParameter(str(exc)) from exc
 
     return value
 
@@ -163,6 +183,7 @@ def cli(ctx: click.Context) -> None:
 @click.option(
     "--common-pattern",
     default=settings.DEFAULT_COMMON_PATTERN,
+    callback=_validate_common_pattern,
     help=(
         "Common file pattern in two files to compare. "
         "Example: mfsX_date.nc and expX_date.nc -> date.nc is the common part."

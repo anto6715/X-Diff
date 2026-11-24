@@ -540,3 +540,19 @@ def test_files_report_shows_bracketed_paths_names_and_reasons(tmp_path):
     assert result.exit_code == 1
     assert str(run / "ref.nc") in result.output
     assert "lead (Data type mismatch: 'timedelta64[s]' - 'timedelta64[ns]'), temp[degC]" in result.output
+
+
+def test_dirs_command_rejects_invalid_common_pattern(tmp_path):
+    # Issue #102: an invalid --common-pattern used to abort mid-run with an
+    # uncaught re.PatternError (exit 1 via traceback), or pass silently when
+    # every file paired by relative path or name. It is now a usage error.
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "cmp").mkdir()
+    (tmp_path / "ref" / "same.nc").touch()
+    (tmp_path / "cmp" / "same.nc").touch()
+
+    result = CliRunner().invoke(cli, ["dirs", str(tmp_path / "ref"), str(tmp_path / "cmp"), "--common-pattern", "("])
+
+    assert result.exit_code == 2
+    assert "--common-pattern" in result.output
+    assert "unterminated subpattern" in result.output
